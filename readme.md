@@ -2,6 +2,10 @@
 
 programming language!!!! yippee!
 
+> [!NOTE]  
+> YIPPEE is in a very early phase and not yet open for contributions.  
+> Talk to me if you would like to help the project (contact information on my [website](https://esthe.win/))
+
 TODO (highest to lowest priority):
 
 - [x] (☆) `if`, `while`, `for` statements. (parser, ast, backend)
