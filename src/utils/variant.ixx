@@ -6,7 +6,7 @@ import utils.type;
 
 export namespace utils {
 template<class... Ts>
-struct variant : public std::variant<Ts...> {
+struct variant : std::variant<Ts...> {
 	using Ts0 = index_pack<0, Ts...>;
 	using base = std::variant<Ts...>;
 	using base::base;
@@ -102,9 +102,7 @@ struct variant : public std::variant<Ts...> {
 	template<class Member>
 		requires(contains<Member>())
 	bool operator==(const Member &other) const {
-		if (this->is<Member>())
-			return this->get<Member>() == other;
-		return false;
+		return this->is<Member>() && this->get<Member>() == other;
 	}
 };
 } // namespace utils

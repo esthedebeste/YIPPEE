@@ -20,12 +20,6 @@ struct type_holder {
 	void set() { index = index_of<T, Ts...>; }
 	static consteval std::size_t size() { return sizeof...(Ts); }
 	template<class T>
-	constexpr const T &get() const {
-		return std::get<T>(*this);
-	}
-	template<class T>
-	constexpr T &get() { return std::get<T>(*this); }
-	template<class T>
 	constexpr bool is() const {
 		return this->index() == index_of<T>();
 	}

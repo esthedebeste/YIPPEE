@@ -678,7 +678,10 @@ struct Parser : reader::Reader {
 		auto type = aon(&Parser::parse_type);
 		ws();
 		if (!try_consume("="))
-			error("Expected = after variable type");
+			if (type)
+				error("Expected = after type in variable declaration");
+			else
+				return std::nullopt;
 		ws();
 		auto expr = parse_expr();
 		if (!expr)
@@ -871,8 +874,12 @@ struct Parser : reader::Reader {
 			auto top_level_ast = parse_top_level();
 			if (!top_level_ast)
 				break;
+			ws();
 			top_level_asts.push_back(std::move(*top_level_ast));
 		}
+		ws();
+		expect("}");
+		ws();
 		return std::make_optional(ast::top::Namespace(
 				location, std::move(*identifier), std::move(top_level_asts)));
 	}

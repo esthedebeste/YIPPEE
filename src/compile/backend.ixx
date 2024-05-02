@@ -23,6 +23,7 @@ import naming;
 export namespace backend {
 template<class UnderlyingValue, class FunctionValue>
 struct Base {
+	virtual ~Base() = default;
 	struct Value {
 		type::Type type;
 		UnderlyingValue value;
@@ -64,8 +65,8 @@ struct Base {
 			std::optional<type::Function> result{};
 			try {
 				std::vector<type::Type> args;
-				for (const auto &type : ast->parameters | std::views::values)
-					args.emplace_back(base->visit(&type));
+				for (const ast::TypeAst &type : ast->parameters | std::views::values)
+					args.push_back(std::move(base->visit(&type)));
 				type::Type return_type = base->visit(ast->return_type);
 				result = type::Function{args, return_type};
 			} catch (std::runtime_error &e) {
@@ -82,6 +83,10 @@ struct Base {
 			// back to namespace of definition
 			std::swap(base->locals, old_locals);
 			base->locals.emplace_back();
+			auto cleanup = [&] {
+				base->locals.pop_back();
+				std::swap(base->locals, old_locals);
+			};
 			std::vector<type::Type> type_arguments{};
 			for (const auto &[index, argument] : std::views::enumerate(ast->type_arguments)) {
 				std::optional<type::Type> type;
@@ -90,9 +95,10 @@ struct Base {
 				else if (argument.default_type)
 					type = base->visit(*argument.default_type);
 				if (!type)
-					if (must_succeed)
+					if (must_succeed) {
+						cleanup();
 						throw std::runtime_error(fmt("Missing type argument for function ", ast->location));
-					else
+					} else
 						return std::nullopt;
 				type::Type argtype = std::move(*type);
 				base->locals.back().types.emplace(
@@ -115,12 +121,13 @@ struct Base {
 				type::Function type{args, return_type};
 				result = base->generate_function_value(*this, type);
 			} catch (...) {
-				if (must_succeed)
+				if (must_succeed) {
+					cleanup();
 					std::rethrow_exception(std::current_exception());
+				}
 				result = std::nullopt;
 			}
-			base->locals.pop_back();
-			std::swap(base->locals, old_locals);
+			cleanup();
 			return result;
 		}
 	};
@@ -168,14 +175,14 @@ struct Base {
 		Namespace *parent;
 		std::string name;
 		Namespace(Namespace *parent, const std::string &name) : parent{parent}, name{name} {}
-		std::unordered_map<std::string_view, Namespace> children;
+		std::unordered_map<std::string, Namespace> children;
 
 		std::vector<std::string> path() {
 			std::vector<std::string> result;
 			for (Namespace *current = this; current != nullptr;
 				 current = current->parent)
 				result.push_back(current->name);
-			std::reverse(result.begin(), result.end());
+			std::ranges::reverse(result);
 			return result;
 		}
 		std::generator<Namespace *> namespaces(const std::string_view name) {
@@ -193,16 +200,20 @@ struct Base {
 		}
 		std::generator<Namespace *> namespaces(const ast::Identifier &name,
 											   const bool final = true) {
-		nextresolve:
 			for (Namespace *current = this; current != nullptr;
 				 current = current->parent) {
 				Namespace *curr_res = current;
+				bool nextresolve = false;
 				for (const auto &part : name.parts) {
 					auto got = curr_res->children.find(part.str);
-					if (got == curr_res->children.end())
-						goto nextresolve;
+					if (got == curr_res->children.end()) {
+						nextresolve = true;
+						break;
+					}
 					curr_res = &got->second;
 				}
+				if (nextresolve)
+					continue;
 				if (final) {
 					auto got = curr_res->children.find(name.final.str);
 					if (got == current->children.end())
@@ -249,7 +260,6 @@ struct Base {
 			return nullptr;
 		}
 		std::optional<GetFunctionResult> function(Base *base, std::string_view name, const std::vector<type::Type> &type_parameters, const std::vector<type::Type> &parameters) {
-
 			for (Namespace *current = this; current != nullptr;
 				 current = current->parent)
 				if (auto got = current->get_function(base, name, type_parameters, parameters))

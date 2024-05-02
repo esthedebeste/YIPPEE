@@ -29,7 +29,7 @@ import naming;
 import backend.base;
 
 namespace {
-struct LlvmVisitor : backend::Base<llvm::Value *, llvm::Value *> {
+struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	llvm::LLVMContext &llvm_context;
 	std::unique_ptr<llvm::Module> mod;
 	using IRBuilder = llvm::IRBuilder<llvm::NoFolder>;
