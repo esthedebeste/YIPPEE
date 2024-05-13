@@ -17,7 +17,7 @@ TODO (highest to lowest priority):
 - [x] (☆☆☆) generic functions (parser, ast, backend)
 	- [x] (☆) weak linkage (backend)
 - [x] (☆) member function call (`fun double(x: int32)` callable as `x.double()`) (parser, ast, backend)
-- [ ] (☆☆) operator overloading (parser, ast, backend)
+- [x] (☆☆) operator overloading (parser, ~~ast~~, backend)
 - [ ] (☆☆) boolean logic (parser, ast, backend)
 - [ ] (☆☆☆) infer template arguments (backend?)
 - [ ] (☆☆☆☆☆) `import` statement loads a file as type declarations. (parser, ast, backend)

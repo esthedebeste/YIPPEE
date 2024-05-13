@@ -99,4 +99,12 @@ struct overloaded : Ts... {
 
 template<class... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
+
+template<size_t From, size_t Until>
+void integer_range_loop(auto &&lambda) {
+	if constexpr (From < Until) {
+		lambda.template operator()<From>();
+		integer_range_loop<From + 1, Until>(std::forward<decltype(lambda)>(lambda));
+	}
+}
 } // namespace utils

@@ -6,6 +6,7 @@ module;
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -19,6 +20,18 @@ import type;
 import operators;
 import operations;
 import naming;
+
+namespace {
+template<class T>
+bool operator==(const std::vector<T> &vector, std::span<T> span) {
+	if (vector.size() != span.size())
+		return false;
+	for (std::size_t i = 0; i < vector.size(); ++i)
+		if (vector[i] != span[i])
+			return false;
+	return true;
+}
+} // namespace
 
 export namespace backend {
 template<class UnderlyingValue, class FunctionValue>
@@ -35,7 +48,7 @@ struct Base {
 		Namespace *ns;
 		const ast::top::Function *ast;
 		// returns std::nullopt if invalid
-		std::optional<type::Function> type(Base *base, const std::vector<type::Type> &type_parameters) {
+		std::optional<type::Function> type(Base *base, std::span<type::Type> type_parameters) {
 			LocalScope old_locals(ns);
 			// when generating the template, return
 			// back to namespace of definition
@@ -53,7 +66,7 @@ struct Base {
 				type::Type argtype = std::move(*type);
 				base->locals.back().types.emplace(
 						argument.name,
-						[argument, argtype](const std::vector<type::Type> &arguments) {
+						[argument, argtype](std::span<type::Type> arguments) {
 							if (!arguments.empty())
 								throw std::runtime_error(fmt("Type arguments for type '",
 															 argument.name,
@@ -77,7 +90,7 @@ struct Base {
 			return result;
 		}
 		// returns std::nullopt if invalid, or if must_succeed is true, rethrows an error
-		std::optional<FunctionValue> value(Base *base, const std::vector<type::Type> &type_parameters, bool must_succeed = false) {
+		std::optional<FunctionValue> value(Base *base, std::span<type::Type> type_parameters, bool must_succeed = false) {
 			LocalScope old_locals(ns);
 			// when generating the template, return
 			// back to namespace of definition
@@ -103,7 +116,7 @@ struct Base {
 				type::Type argtype = std::move(*type);
 				base->locals.back().types.emplace(
 						argument.name,
-						[argument, argtype](const std::vector<type::Type> &arguments) {
+						[argument, argtype](std::span<type::Type> arguments) {
 							if (!arguments.empty())
 								throw std::runtime_error(fmt("Type arguments for type '",
 															 argument.name,
@@ -136,11 +149,11 @@ struct Base {
 		type::Function type;
 		FunctionValue value;
 	};
-	using TypeTemplate = std::function<type::Type(const std::vector<type::Type> &)>;
+	using TypeTemplate = std::function<type::Type(std::span<type::Type>)>;
 	struct FunctionContainer {
 		bool can_contain_ambiguous = false;
 		FunctionContainer(bool can_contain_ambiguous = false) : can_contain_ambiguous{can_contain_ambiguous} {}
-		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, const std::vector<type::Type> &type_parameters, const std::vector<type::Type> &parameters) {
+		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
 			if (auto it = functions.find(name); it != functions.end()) {
 				std::optional<GetFunctionResult> result{};
 				for (auto &func : it->second)
@@ -288,14 +301,14 @@ struct Base {
 					return &got->second;
 			return nullptr;
 		}
-		std::optional<GetFunctionResult> function(Base *base, std::string_view name, const std::vector<type::Type> &type_parameters, const std::vector<type::Type> &parameters) {
+		std::optional<GetFunctionResult> function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
 			for (Namespace *current = this; current != nullptr;
 				 current = current->parent)
 				if (auto got = current->get_function(base, name, type_parameters, parameters))
 					return got;
 			return std::nullopt;
 		}
-		std::optional<GetFunctionResult> function(Base *base, const ast::Identifier &name, const std::vector<type::Type> &type_parameters, const std::vector<type::Type> &parameters) {
+		std::optional<GetFunctionResult> function(Base *base, const ast::Identifier &name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
 			if (name.parts.empty())
 				return function(base, name.final.str, type_parameters, parameters);
 			for (auto ns : namespaces(name, false))
@@ -334,7 +347,7 @@ struct Base {
 
 	Namespace root_namespace{nullptr, "YIPPEE"};
 	LocalScope locals{&root_namespace};
-	FunctionContainer member_function_container{true};
+	FunctionContainer all_function_container{true};
 
 	type::Function function_type(const ast::top::Function &function) {
 		std::vector<type::Type> args;
@@ -349,7 +362,7 @@ struct Base {
 			throw std::runtime_error(fmt("Struct '", name, "' already defined"));
 
 		auto res = ns_->types.emplace(
-				name.final, [=](const std::vector<type::Type> &arguments) {
+				name.final, [=](std::span<type::Type> arguments) {
 					LocalScope old_locals(ns_);
 					// when generating the template, return back to namespace of definition
 					std::swap(locals, old_locals);
@@ -367,7 +380,7 @@ struct Base {
 						type::Type argtype = std::move(*type);
 						locals.back().types.emplace(
 								argument.name,
-								[argument, argtype](const std::vector<type::Type> &arguments) {
+								[argument, argtype](std::span<type::Type> arguments) {
 									if (!arguments.empty())
 										throw std::runtime_error(fmt("Type arguments for type '",
 																	 argument.name,

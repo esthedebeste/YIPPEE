@@ -16,6 +16,7 @@ module;
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -29,6 +30,28 @@ import naming;
 import backend.base;
 
 namespace {
+namespace constexpr_primitives {
+constexpr type::Type t_boolean{type::Primitive{type::Primitive::boolean}};
+constexpr type::Type t_uint8{type::Primitive{type::Primitive::uint8}};
+constexpr type::Type t_int8{type::Primitive{type::Primitive::int8}};
+constexpr type::Type t_uint16{type::Primitive{type::Primitive::uint16}};
+constexpr type::Type t_int16{type::Primitive{type::Primitive::int16}};
+constexpr type::Type t_uint32{type::Primitive{type::Primitive::uint32}};
+constexpr type::Type t_int32{type::Primitive{type::Primitive::int32}};
+constexpr type::Type t_uint64{type::Primitive{type::Primitive::uint64}};
+constexpr type::Type t_int64{type::Primitive{type::Primitive::int64}};
+constexpr type::Type t_uint128{type::Primitive{type::Primitive::uint128}};
+constexpr type::Type t_int128{type::Primitive{type::Primitive::int128}};
+constexpr type::Type t_half{type::Primitive{type::Primitive::half}};
+constexpr type::Type t_float{type::Primitive{type::Primitive::float_}};
+constexpr type::Type t_double{type::Primitive{type::Primitive::double_}};
+
+constexpr std::array unsigneds{t_uint8, t_uint16, t_uint32, t_uint64, t_uint128};
+constexpr std::array signeds{t_int8, t_int16, t_int32, t_int64, t_int128};
+constexpr std::array integers{t_uint8, t_int8, t_uint16, t_int16, t_uint32, t_int32, t_uint64, t_int64, t_uint128, t_int128};
+constexpr std::array floats{t_half, t_float, t_double};
+constexpr std::array numeric{t_uint8, t_int8, t_uint16, t_int16, t_uint32, t_int32, t_uint64, t_int64, t_uint128, t_int128, t_half, t_float, t_double};
+} // namespace constexpr_primitives
 struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	llvm::LLVMContext &llvm_context;
 	std::unique_ptr<llvm::Module> mod;
@@ -126,12 +149,11 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		top->visit([&](const auto &top) { visit(top); });
 	}
 	void visit(const ast::top::Function &function) {
-		auto ns_ = locals.ns->namespace_(function.name, false);
-		auto &tlf = ns_->emplace_function(this, function.name.final.str, ns_, &function);
-		member_function_container.emplace_function(this, tlf);
-		if (function.type_arguments.empty()) {
+		auto ns = locals.ns->namespace_(function.name, false);
+		auto &tlf = ns->emplace_function(this, function.name.final.str, ns, &function);
+		all_function_container.emplace_function(this, tlf);
+		if (function.type_arguments.empty())
 			tlf.value(this, {}, true); // always compile non-templated functions
-		}
 	}
 	llvm::Value *generate_function_value(const TopLevelFunction &tlf, const type::Function &type) override {
 		const auto pre_generate_insert_point = builder->GetInsertBlock(); // save the caller's insert point
@@ -320,8 +342,8 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 				[&](const auto &expr) -> Value { return visit(expr); });
 	}
 
-	using bop_generator = std::function<Value(Value &, Value &)>;
-	using unary_generator = std::function<Value(Value &)>;
+	using bop_generator = Value (*)(LlvmVisitor &, const Value &, const Value &);
+	using unary_generator = Value (*)(LlvmVisitor &, const Value &);
 
 	/// If value is NOT a reference, returns it.
 	/// Otherwise, `load` and returns this value.
@@ -347,123 +369,91 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 				builder->CreateLoad(llvm_type(loaded_type), value.value);
 		return Value{loaded_type, loaded};
 	}
-	template<class T>
-	std::pair<operation::Binary, bop_generator>
-	bop(const type::Type &left, const operators::binary op, T lambda,
-		const std::optional<type::Type> &righto = std::nullopt,
-		const std::optional<type::Type> &resulto = std::nullopt) {
-		const type::Type &right = righto ? *righto : left;
-		const type::Type &result = resulto ? *resulto : left;
+	template<const type::Type &left, const operators::binary op, llvm::Value *(*Lambda)(LlvmVisitor &, llvm::Value *, llvm::Value *), const type::Type &right = left, const type::Type &result = left>
+	static std::pair<operation::Binary, bop_generator>
+	bop() {
 		return std::make_pair<operation::Binary, bop_generator>(
 				operation::Binary{left, right, op},
-				bop_generator([=](const Value &lhs, const Value &rhs) -> Value {
-					return Value{result, lambda(deref(lhs).value, deref(rhs).value)};
+				static_cast<bop_generator>(+[](LlvmVisitor &visitor, const Value &lhs, const Value &rhs) -> Value {
+					return Value{result, Lambda(visitor, visitor.deref(lhs).value, visitor.deref(rhs).value)};
 				}));
 	}
-#define BUILDER_FUNCTION(name)                   \
-	[&](llvm::Value *left, llvm::Value *right) { \
-		return builder->name(left, right);       \
+#define BUILDER_FUNCTION(name)                                        \
+	[](LlvmVisitor &visitor, llvm::Value *left, llvm::Value *right) { \
+		return visitor.builder->name(left, right);                    \
 	}
-	std::vector<std::pair<operation::Binary, bop_generator>>
-	default_binary_operations() {
+	static std::vector<std::pair<operation::Binary, bop_generator>>
+	builtin_binary_operations() {
 		std::vector<std::pair<operation::Binary, bop_generator>> bops{};
-		const std::array<type::Type, 5> unsigneds{type::t_uint8, type::t_uint16,
-												  type::t_uint32, type::t_uint64,
-												  type::t_uint128};
-		const std::array<type::Type, 5> signeds{type::t_int8, type::t_int16,
-												type::t_int32, type::t_int64,
-												type::t_int128};
-		for (const auto &same : std::array{unsigneds, signeds} | std::views::join) {
-			bops.push_back(bop(same, operators::b_and, BUILDER_FUNCTION(CreateAnd)));
-			bops.push_back(bop(same, operators::b_or, BUILDER_FUNCTION(CreateOr)));
-			bops.push_back(bop(same, operators::b_xor, BUILDER_FUNCTION(CreateXor)));
-			bops.push_back(bop(same, operators::b_shl, BUILDER_FUNCTION(CreateShl)));
-			bops.push_back(bop(same, operators::add, BUILDER_FUNCTION(CreateAdd)));
-			bops.push_back(bop(same, operators::sub, BUILDER_FUNCTION(CreateSub)));
-			bops.push_back(bop(same, operators::mul, BUILDER_FUNCTION(CreateMul)));
-		}
-		for (auto &uns : std::array{type::uint8, type::uint16, type::uint32,
-									type::uint64, type::uint128}) {
-			const auto t = type::Type(uns);
-			bops.push_back(bop(t, operators::b_shr, BUILDER_FUNCTION(CreateLShr)));
-			bops.push_back(bop(t, operators::div, BUILDER_FUNCTION(CreateUDiv)));
-			bops.push_back(bop(t, operators::mod, BUILDER_FUNCTION(CreateURem)));
-			const auto sig = uns.to_signed();
+		using namespace constexpr_primitives;
+		utils::integer_range_loop<0, integers.size()>([&]<size_t Index>() {
+			constexpr auto &same = integers[Index];
+			bops.push_back(bop<same, operators::b_and, BUILDER_FUNCTION(CreateAnd)>());
+			bops.push_back(bop<same, operators::b_or, BUILDER_FUNCTION(CreateOr)>());
+			bops.push_back(bop<same, operators::b_xor, BUILDER_FUNCTION(CreateXor)>());
+			bops.push_back(bop<same, operators::b_shl, BUILDER_FUNCTION(CreateShl)>());
+			bops.push_back(bop<same, operators::add, BUILDER_FUNCTION(CreateAdd)>());
+			bops.push_back(bop<same, operators::sub, BUILDER_FUNCTION(CreateSub)>());
+			bops.push_back(bop<same, operators::mul, BUILDER_FUNCTION(CreateMul)>());
+		});
+		utils::integer_range_loop<0, unsigneds.size()>([&]<size_t Index>() {
+			constexpr auto &uns = unsigneds[Index];
+			bops.push_back(bop<uns, operators::b_shr, BUILDER_FUNCTION(CreateLShr)>());
+			bops.push_back(bop<uns, operators::div, BUILDER_FUNCTION(CreateUDiv)>());
+			bops.push_back(bop<uns, operators::mod, BUILDER_FUNCTION(CreateURem)>());
+			constexpr auto &sig = signeds[Index];
 			// int32 + uint32 = int32
-			bops.push_back(
-					bop(sig, operators::b_and, BUILDER_FUNCTION(CreateAnd), uns, sig));
-			bops.push_back(
-					bop(sig, operators::b_or, BUILDER_FUNCTION(CreateOr), uns, sig));
-			bops.push_back(
-					bop(sig, operators::b_xor, BUILDER_FUNCTION(CreateXor), uns, sig));
-			bops.push_back(
-					bop(sig, operators::b_shl, BUILDER_FUNCTION(CreateShl), uns, sig));
-			bops.push_back(
-					bop(sig, operators::add, BUILDER_FUNCTION(CreateAdd), uns, sig));
-			bops.push_back(
-					bop(sig, operators::sub, BUILDER_FUNCTION(CreateSub), uns, sig));
-			bops.push_back(
-					bop(sig, operators::mul, BUILDER_FUNCTION(CreateMul), uns, sig));
+			bops.push_back(bop<sig, operators::b_and, BUILDER_FUNCTION(CreateAnd), uns, sig>());
+			bops.push_back(bop<sig, operators::b_or, BUILDER_FUNCTION(CreateOr), uns, sig>());
+			bops.push_back(bop<sig, operators::b_xor, BUILDER_FUNCTION(CreateXor), uns, sig>());
+			bops.push_back(bop<sig, operators::b_shl, BUILDER_FUNCTION(CreateShl), uns, sig>());
+			bops.push_back(bop<sig, operators::add, BUILDER_FUNCTION(CreateAdd), uns, sig>());
+			bops.push_back(bop<sig, operators::sub, BUILDER_FUNCTION(CreateSub), uns, sig>());
+			bops.push_back(bop<sig, operators::mul, BUILDER_FUNCTION(CreateMul), uns, sig>());
 			// uint32 + int32 = int32
-			bops.push_back(
-					bop(uns, operators::b_and, BUILDER_FUNCTION(CreateAnd), sig, sig));
-			bops.push_back(
-					bop(uns, operators::b_or, BUILDER_FUNCTION(CreateOr), sig, sig));
-			bops.push_back(
-					bop(uns, operators::b_xor, BUILDER_FUNCTION(CreateXor), sig, sig));
-			bops.push_back(
-					bop(uns, operators::b_shl, BUILDER_FUNCTION(CreateShl), sig, sig));
-			bops.push_back(
-					bop(uns, operators::add, BUILDER_FUNCTION(CreateAdd), sig, sig));
-			bops.push_back(
-					bop(uns, operators::sub, BUILDER_FUNCTION(CreateSub), sig, sig));
-			bops.push_back(
-					bop(uns, operators::mul, BUILDER_FUNCTION(CreateMul), sig, sig));
-		}
-		for (const auto &sig : signeds) {
-			bops.push_back(bop(sig, operators::b_shr, BUILDER_FUNCTION(CreateAShr)));
-			bops.push_back(bop(sig, operators::div, BUILDER_FUNCTION(CreateSDiv)));
-			bops.push_back(bop(sig, operators::mod, BUILDER_FUNCTION(CreateSRem)));
-		}
-		for (const auto &flo : std::array{type::t_float, type::t_double}) {
-			bops.push_back(bop(flo, operators::add, BUILDER_FUNCTION(CreateFAdd)));
-			bops.push_back(bop(flo, operators::sub, BUILDER_FUNCTION(CreateFSub)));
-			bops.push_back(bop(flo, operators::mul, BUILDER_FUNCTION(CreateFMul)));
-			bops.push_back(bop(flo, operators::div, BUILDER_FUNCTION(CreateFDiv)));
-			bops.push_back(bop(flo, operators::mod, BUILDER_FUNCTION(CreateFRem)));
-		}
+			bops.push_back(bop<uns, operators::b_and, BUILDER_FUNCTION(CreateAnd), sig, sig>());
+			bops.push_back(bop<uns, operators::b_or, BUILDER_FUNCTION(CreateOr), sig, sig>());
+			bops.push_back(bop<uns, operators::b_xor, BUILDER_FUNCTION(CreateXor), sig, sig>());
+			bops.push_back(bop<uns, operators::b_shl, BUILDER_FUNCTION(CreateShl), sig, sig>());
+			bops.push_back(bop<uns, operators::add, BUILDER_FUNCTION(CreateAdd), sig, sig>());
+			bops.push_back(bop<uns, operators::sub, BUILDER_FUNCTION(CreateSub), sig, sig>());
+			bops.push_back(bop<uns, operators::mul, BUILDER_FUNCTION(CreateMul), sig, sig>());
+		});
+		utils::integer_range_loop<0, signeds.size()>([&]<size_t Index>() {
+			constexpr auto &sig = signeds[Index];
+			bops.push_back(bop<sig, operators::b_shr, BUILDER_FUNCTION(CreateAShr)>());
+			bops.push_back(bop<sig, operators::div, BUILDER_FUNCTION(CreateSDiv)>());
+			bops.push_back(bop<sig, operators::mod, BUILDER_FUNCTION(CreateSRem)>());
+		});
+		utils::integer_range_loop<0, floats.size()>([&]<size_t Index>() {
+			constexpr auto &flo = floats[Index];
+			bops.push_back(bop<flo, operators::add, BUILDER_FUNCTION(CreateFAdd)>());
+			bops.push_back(bop<flo, operators::sub, BUILDER_FUNCTION(CreateFSub)>());
+			bops.push_back(bop<flo, operators::mul, BUILDER_FUNCTION(CreateFMul)>());
+			bops.push_back(bop<flo, operators::div, BUILDER_FUNCTION(CreateFDiv)>());
+			bops.push_back(bop<flo, operators::mod, BUILDER_FUNCTION(CreateFRem)>());
+		});
 		bops.push_back(
-				bop(type::t_float, operators::pow,
-					[&](llvm::Value *left, llvm::Value *right) {
-						const auto ty = llvm::Type::getFloatTy(llvm_context);
-						return static_cast<llvm::Value *>(builder->CreateCall(
-								mod->getOrInsertFunction("llvm.pow.f32", ty, ty, ty),
+				bop<t_float, operators::pow,
+					[](LlvmVisitor &visitor, llvm::Value *left, llvm::Value *right) {
+						const auto ty = llvm::Type::getFloatTy(visitor.llvm_context);
+						return static_cast<llvm::Value *>(visitor.builder->CreateCall(
+								visitor.mod->getOrInsertFunction("llvm.pow.f32", ty, ty, ty),
 								{left, right}));
-					}));
+					}>());
 		bops.push_back(
-				bop(type::t_double, operators::pow,
-					[&](llvm::Value *left, llvm::Value *right) {
-						const auto ty = llvm::Type::getDoubleTy(llvm_context);
-						return static_cast<llvm::Value *>(builder->CreateCall(
-								mod->getOrInsertFunction("llvm.pow.f64", ty, ty, ty),
+				bop<t_double, operators::pow,
+					[](LlvmVisitor &visitor, llvm::Value *left, llvm::Value *right) {
+						const auto ty = llvm::Type::getDoubleTy(visitor.llvm_context);
+						return static_cast<llvm::Value *>(visitor.builder->CreateCall(
+								visitor.mod->getOrInsertFunction("llvm.pow.f64", ty, ty, ty),
 								{left, right}));
-					}));
+					}>());
 		return bops;
 	}
 
 	std::vector<std::pair<operation::Binary, bop_generator>> binary_operations{
-			std::move(default_binary_operations())};
-	void add_binary_operation(const type::Type &left, const operators::binary &op,
-							  const type::Type &right, const type::Type &result,
-							  const llvm::FunctionCallee function) {
-		binary_operations.push_back(
-				std::make_pair<operation::Binary, bop_generator>(
-						operation::Binary{left, right, op},
-						bop_generator([=](const Value &lhs, const Value &rhs) -> Value {
-							return Value{result, builder->CreateCall(function,
-																	 {lhs.value, rhs.value})};
-						})));
-	}
+			std::move(builtin_binary_operations())};
 
 	Value assignment(const ast::expr::Binop &expr) {
 		const auto lvalue = visit(expr.left);
@@ -515,83 +505,82 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		for (auto &[op, gen] : binary_operations) {
 			if (op.op == expr.op && op.left == lvalue.type &&
 				op.right == rvalue.type) {
-				return gen(lvalue, rvalue);
+				return gen(*this, lvalue, rvalue);
 			}
+		}
+		std::string_view op_str = string(expr.op);
+		auto types = std::array{lvalue.type, rvalue.type};
+		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
+			auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
+											function->value, std::array{lvalue.value, rvalue.value});
+			return Value{
+					*function->type.return_type,
+					call};
 		}
 		lvalue = deref(lvalue);
 		rvalue = deref(rvalue);
 		for (auto &[op, gen] : binary_operations) {
 			if (op.op == expr.op && op.left == lvalue.type &&
 				op.right == rvalue.type) {
-				return gen(lvalue, rvalue);
+				return gen(*this, lvalue, rvalue);
 			}
+		}
+		types = std::array{lvalue.type, rvalue.type};
+		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
+			auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
+											function->value, std::array{lvalue.value, rvalue.value});
+			return Value{
+					*function->type.return_type,
+					call};
 		}
 		throw std::runtime_error(
 				fmt("No matching binary operation ", expr.location));
 	}
 
-	template<class T>
-	std::pair<operation::Comparison, bop_generator>
-	cop(const type::Type type, const operators::comparison op, T lambda) {
+	template<const type::Type &left, const operators::comparison op, llvm::Value *(*Lambda)(LlvmVisitor &, llvm::Value *, llvm::Value *), const type::Type &right = left, const type::Type &result = left>
+	static std::pair<operation::Comparison, bop_generator>
+	cop() {
 		return std::make_pair<operation::Comparison, bop_generator>(
-				operation::Comparison{type, type, op},
-				bop_generator([=](const Value &lhs, const Value &rhs) -> Value {
-					return Value{type, lambda(deref(lhs).value, deref(rhs).value)};
+				operation::Comparison{left, right, op},
+				static_cast<bop_generator>(+[](LlvmVisitor &visitor, const Value &lhs, const Value &rhs) -> Value {
+					return Value{result, Lambda(visitor, visitor.deref(lhs).value, visitor.deref(rhs).value)};
 				}));
 	}
-	std::vector<std::pair<operation::Comparison, bop_generator>>
-	default_comparison_operations() {
+	static std::vector<std::pair<operation::Comparison, bop_generator>>
+	builtin_comparison_operations() {
 		std::vector<std::pair<operation::Comparison, bop_generator>> cops{};
-		for (const auto &uns :
-			 std::array{type::t_uint8, type::t_uint16, type::t_uint32,
-						type::t_uint64, type::t_uint128}) {
-			cops.push_back(
-					cop(uns, operators::less, BUILDER_FUNCTION(CreateICmpULT)));
-			cops.push_back(
-					cop(uns, operators::less_eq, BUILDER_FUNCTION(CreateICmpULE)));
-			cops.push_back(
-					cop(uns, operators::greater, BUILDER_FUNCTION(CreateICmpUGT)));
-			cops.push_back(
-					cop(uns, operators::greater_eq, BUILDER_FUNCTION(CreateICmpUGE)));
-			cops.push_back(
-					cop(uns, operators::eq_eq, BUILDER_FUNCTION(CreateICmpEQ)));
-			cops.push_back(
-					cop(uns, operators::not_equal, BUILDER_FUNCTION(CreateICmpNE)));
-		}
-		for (const auto &sig :
-			 std::array{type::t_int8, type::t_int16, type::t_int32, type::t_int64,
-						type::t_int128}) {
-			cops.push_back(
-					cop(sig, operators::less, BUILDER_FUNCTION(CreateICmpSLT)));
-			cops.push_back(
-					cop(sig, operators::less_eq, BUILDER_FUNCTION(CreateICmpSLE)));
-			cops.push_back(
-					cop(sig, operators::greater, BUILDER_FUNCTION(CreateICmpSGT)));
-			cops.push_back(
-					cop(sig, operators::greater_eq, BUILDER_FUNCTION(CreateICmpSGE)));
-			cops.push_back(
-					cop(sig, operators::eq_eq, BUILDER_FUNCTION(CreateICmpEQ)));
-			cops.push_back(
-					cop(sig, operators::not_equal, BUILDER_FUNCTION(CreateICmpNE)));
-		}
-		for (const auto &flo : std::array{type::t_float, type::t_double}) {
-			cops.push_back(
-					cop(flo, operators::less, BUILDER_FUNCTION(CreateFCmpOLT)));
-			cops.push_back(
-					cop(flo, operators::less_eq, BUILDER_FUNCTION(CreateFCmpOLE)));
-			cops.push_back(
-					cop(flo, operators::greater, BUILDER_FUNCTION(CreateFCmpOGT)));
-			cops.push_back(
-					cop(flo, operators::greater_eq, BUILDER_FUNCTION(CreateFCmpOGE)));
-			cops.push_back(
-					cop(flo, operators::eq_eq, BUILDER_FUNCTION(CreateFCmpOEQ)));
-			cops.push_back(
-					cop(flo, operators::not_equal, BUILDER_FUNCTION(CreateFCmpONE)));
-		}
+		using namespace constexpr_primitives;
+		utils::integer_range_loop<0, unsigneds.size()>([&]<size_t Index>() {
+			constexpr auto &uns = unsigneds[Index];
+			cops.push_back(cop<uns, operators::less, BUILDER_FUNCTION(CreateICmpULT)>());
+			cops.push_back(cop<uns, operators::less_eq, BUILDER_FUNCTION(CreateICmpULE)>());
+			cops.push_back(cop<uns, operators::greater, BUILDER_FUNCTION(CreateICmpUGT)>());
+			cops.push_back(cop<uns, operators::greater_eq, BUILDER_FUNCTION(CreateICmpUGE)>());
+			cops.push_back(cop<uns, operators::eq_eq, BUILDER_FUNCTION(CreateICmpEQ)>());
+			cops.push_back(cop<uns, operators::not_equal, BUILDER_FUNCTION(CreateICmpNE)>());
+		});
+		utils::integer_range_loop<0, signeds.size()>([&]<size_t Index>() {
+			constexpr auto &sig = signeds[Index];
+			cops.push_back(cop<sig, operators::less, BUILDER_FUNCTION(CreateICmpSLT)>());
+			cops.push_back(cop<sig, operators::less_eq, BUILDER_FUNCTION(CreateICmpSLE)>());
+			cops.push_back(cop<sig, operators::greater, BUILDER_FUNCTION(CreateICmpSGT)>());
+			cops.push_back(cop<sig, operators::greater_eq, BUILDER_FUNCTION(CreateICmpSGE)>());
+			cops.push_back(cop<sig, operators::eq_eq, BUILDER_FUNCTION(CreateICmpEQ)>());
+			cops.push_back(cop<sig, operators::not_equal, BUILDER_FUNCTION(CreateICmpNE)>());
+		});
+		utils::integer_range_loop<0, floats.size()>([&]<size_t Index>() {
+			constexpr auto &flo = floats[Index];
+			cops.push_back(cop<flo, operators::less, BUILDER_FUNCTION(CreateFCmpOLT)>());
+			cops.push_back(cop<flo, operators::less_eq, BUILDER_FUNCTION(CreateFCmpOLE)>());
+			cops.push_back(cop<flo, operators::greater, BUILDER_FUNCTION(CreateFCmpOGT)>());
+			cops.push_back(cop<flo, operators::greater_eq, BUILDER_FUNCTION(CreateFCmpOGE)>());
+			cops.push_back(cop<flo, operators::eq_eq, BUILDER_FUNCTION(CreateFCmpOEQ)>());
+			cops.push_back(cop<flo, operators::not_equal, BUILDER_FUNCTION(CreateFCmpONE)>());
+		});
 		return cops;
 	}
 	std::vector<std::pair<operation::Comparison, bop_generator>>
-			comparison_operations{std::move(default_comparison_operations())};
+			comparison_operations{std::move(builtin_comparison_operations())};
 	Value visit(const ast::expr::Comparison &expr) {
 		auto lvalue = visit(&expr.operands[0]);
 		const auto start_block = builder->GetInsertBlock();
@@ -608,7 +597,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 					if (op.op == expr_op && op.left == lvalue.type &&
 						op.right == rvalue.type) {
 						// do stuff and && for (1 < 2 <= 3)
-						const auto result = gen(lvalue, rvalue);
+						const auto result = gen(*this, lvalue, rvalue);
 						if (is_last) {
 							phi->addIncoming(result.value, builder->GetInsertBlock());
 							builder->CreateBr(end_block);
@@ -639,70 +628,56 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		return Value{result_type, phi};
 	}
 
-	template<class T>
-	std::pair<operation::Unary, unary_generator>
-	uop(const type::Type &type, const operators::unary op, T lambda) {
+	template<const type::Type &type, const operators::unary op, llvm::Value *(*Lambda)(LlvmVisitor &visitor, llvm::Value *operand), const type::Type &result = type>
+	std::pair<operation::Unary, unary_generator> static uop() {
 		return std::make_pair<operation::Unary, unary_generator>(
 				operation::Unary{type, op},
-				unary_generator([=](const Value &operand) -> Value {
-					return Value{type, lambda(deref(operand).value)};
+				static_cast<unary_generator>(+[](LlvmVisitor &visitor, const Value &operand) -> Value {
+					return Value{type, Lambda(visitor, visitor.deref(operand).value)};
 				}));
 	}
 #undef BUILDER_FUNCTION
 #define BUILDER_FUNCTION(name) \
-	[&](llvm::Value *operand) { return builder->name(operand); }
+	[](LlvmVisitor &visitor, llvm::Value *operand) { return visitor.builder->name(operand); }
 
-	std::vector<std::pair<operation::Unary, unary_generator>>
-	default_unary_operations() {
+	static std::vector<std::pair<operation::Unary, unary_generator>>
+	builtin_unary_operations() {
 		std::vector<std::pair<operation::Unary, unary_generator>> ops{};
-		for (const auto &num : std::array{
-					 type::t_uint8,
-					 type::t_int8,
-					 type::t_uint16,
-					 type::t_int16,
-					 type::t_uint32,
-					 type::t_int32,
-					 type::t_uint64,
-					 type::t_int64,
-					 type::t_uint128,
-					 type::t_int128,
-					 type::t_float,
-					 type::t_double,
-			 }) {
-			ops.push_back(uop(num, operators::pos,
-							  [](llvm::Value *operand) { return operand; }));
-		}
-		for (auto &uns : std::array{type::uint8, type::uint16, type::uint32,
-									type::uint64, type::uint128}) {
-			const auto t = type::Type(uns);
-			ops.push_back(uop(t, operators::b_not, BUILDER_FUNCTION(CreateNot)));
-			const auto signed_version = uns.to_signed();
+		using namespace constexpr_primitives;
+		utils::integer_range_loop<0, numeric.size()>([&]<size_t Index>() {
+			constexpr auto &num = numeric[Index];
+			ops.push_back(uop<num, operators::pos,
+							  [](LlvmVisitor &, llvm::Value *operand) { return operand; }>());
+		});
+		utils::integer_range_loop<0, unsigneds.size()>([&]<size_t Index>() {
+			constexpr auto &uns = unsigneds[Index];
+			ops.push_back(uop<uns, operators::b_not, BUILDER_FUNCTION(CreateNot)>());
 			ops.push_back(std::make_pair<operation::Unary, unary_generator>(
-					operation::Unary{t, operators::neg},
-					unary_generator([=](const Value &operand) -> Value {
-						return Value{signed_version,
-									 builder->CreateNeg(deref(operand).value)};
+					operation::Unary{uns, operators::neg},
+					static_cast<unary_generator>([](LlvmVisitor &visitor, const Value &operand) -> Value {
+						return Value{signeds[Index],
+									 visitor.builder->CreateNeg(visitor.deref(operand).value)};
 					})));
-		}
-		for (const auto &sig :
-			 std::array{type::t_int8, type::t_int16, type::t_int32, type::t_int64,
-						type::t_int128}) {
-			ops.push_back(uop(sig, operators::neg, BUILDER_FUNCTION(CreateNeg)));
-		}
-		for (const auto &flo : std::array{type::t_float, type::t_double}) {
-			ops.push_back(uop(flo, operators::neg, BUILDER_FUNCTION(CreateFNeg)));
-		}
+		});
+		utils::integer_range_loop<0, signeds.size()>([&]<size_t Index>() {
+			constexpr auto &sig = signeds[Index];
+			ops.push_back(uop<sig, operators::neg, BUILDER_FUNCTION(CreateNeg)>());
+		});
+		utils::integer_range_loop<0, floats.size()>([&]<size_t Index>() {
+			constexpr auto &flo = floats[Index];
+			ops.push_back(uop<flo, operators::neg, BUILDER_FUNCTION(CreateFNeg)>());
+		});
 		ops.push_back(
-				uop(type::t_boolean, operators::l_not, BUILDER_FUNCTION(CreateNot)));
+				uop<t_boolean, operators::l_not, BUILDER_FUNCTION(CreateNot)>());
 		return ops;
 	}
 	std::vector<std::pair<operation::Unary, unary_generator>> unary_operations{
-			std::move(default_unary_operations())};
+			std::move(builtin_unary_operations())};
 	Value visit(const ast::expr::Unary &expr) {
 		auto operand = visit(expr.expr);
 		for (auto &[op, gen] : unary_operations) {
 			if (op.op == expr.op && op.operand == operand.type) {
-				return gen(operand);
+				return gen(*this, operand);
 			}
 		}
 		throw std::runtime_error(
@@ -811,7 +786,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		std::vector<type::Type> arg_types;
 		for (const auto &arg : args)
 			arg_types.push_back(arg.type);
-		auto function = member_function_container.get_function(this, expr.name, type_args, arg_types);
+		auto function = all_function_container.get_function(this, expr.name, type_args, arg_types);
 		if (!function)
 			throw std::runtime_error(fmt("Unknown function ", expr.name,
 										 " for the supplied arguments at ",
@@ -901,7 +876,6 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		non_ref_array_type.is_ref = false;
 		auto alloca = builder->CreateAlloca(llvm_type(array_type), nullptr, "alloca");
 		auto llvm_array = llvm_type(non_ref_array_type);
-		const auto zero = llvm::ConstantInt::get(llvm::Type::getInt32Ty(llvm_context), 0);
 		builder->CreateStore(first.value, builder->CreateConstGEP2_64(llvm_array, alloca, 0, 0));
 		for (const auto &[index, value] :
 			 std::views::enumerate(expr.values | std::views::drop(1))) {

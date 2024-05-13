@@ -20,21 +20,21 @@ struct Type : type_variant {
 
 	template<class Member>
 		requires(type_variant::contains<Member>())
-	Type(Member &&member, const bool is_const = false, const bool is_ref = false)
+	constexpr Type(Member &&member, const bool is_const = false, const bool is_ref = false)
 		: base(std::move(member)), is_const{is_const}, is_ref{is_ref} {}
 	template<class Member>
 		requires(type_variant::contains<Member>())
-	Type(const Member &member, const bool is_const = false,
-		 const bool is_ref = false)
+	constexpr Type(const Member &member, const bool is_const = false,
+				   const bool is_ref = false)
 		: base(member), is_const{is_const}, is_ref{is_ref} {}
-	Type(const Type &other) = default;
-	Type(Type &&other) = default;
-	Type &operator=(const Type &other) = default;
-	bool operator==(const Type &other) const {
+	constexpr Type(const Type &other) = default;
+	constexpr Type(Type &&other) = default;
+	constexpr Type &operator=(const Type &other) = default;
+	constexpr bool operator==(const Type &other) const {
 		return is_const == other.is_const && is_ref == other.is_ref &&
 			   base::operator==(other);
 	}
-	std::strong_ordering operator<=>(const Type &other) const {
+	constexpr std::strong_ordering operator<=>(const Type &other) const {
 		if (auto cmp = is_const <=> other.is_const; cmp != 0)
 			return cmp;
 		if (auto cmp = is_ref <=> other.is_ref; cmp != 0)

@@ -3,6 +3,7 @@ module;
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <sstream>
 #include <string>
@@ -134,8 +135,20 @@ struct Parser : reader::Reader {
 		if (!is_id_start(**this))
 			return {};
 		while (true) {
-			if (eof() || !is_id_continue(**this))
-				return std::string_view(source.data() + start, index() - start);
+			if (eof() || !is_id_continue(**this)) {
+				std::string_view name{source.data() + start, index() - start};
+				if (name == "operator") {
+#define OPERATOR_LOOP(array)           \
+	for (std::string_view str : array) \
+		if (try_consume(str))          \
+			return str;
+					OPERATOR_LOOP(operators::binary_strings);
+					OPERATOR_LOOP(operators::comparison_strings);
+					OPERATOR_LOOP(operators::unary_strings);
+#undef OPERATOR_LOOP
+				}
+				return name;
+			}
 			consume();
 		}
 		std::unreachable();
