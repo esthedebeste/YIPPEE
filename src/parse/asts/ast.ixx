@@ -13,6 +13,7 @@ export import ast.exprs.conditional;
 export import ast.exprs.create;
 export import ast.exprs.identifier;
 export import ast.exprs.member;
+export import ast.exprs.member_call;
 export import ast.exprs.number;
 export import ast.exprs.subscript;
 export import ast.exprs.unary;
@@ -38,8 +39,8 @@ import utils;
 using ExprVariant =
 		utils::variant<ast::expr::Array, ast::expr::Binop, ast::expr::Call,
 					   ast::expr::Comparison, ast::expr::Conditional, ast::expr::Create,
-					   ast::expr::Identifier, ast::expr::Member, ast::expr::Number,
-					   ast::expr::Subscript, ast::expr::Unary>;
+					   ast::expr::Identifier, ast::expr::Member, ast::expr::MemberCall,
+					   ast::expr::Number, ast::expr::Subscript, ast::expr::Unary>;
 using StmtVariant =
 		utils::variant<ast::stmt::Block, ast::stmt::Expr, ast::stmt::For,
 					   ast::stmt::If, ast::stmt::Return, ast::stmt::Variable,

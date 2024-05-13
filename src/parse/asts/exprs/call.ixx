@@ -11,7 +11,7 @@ export struct Call final : AstBase {
 	std::vector<ExprAst> arguments;
 	Call(const Location &location, ExprPtr callee, std::vector<ExprAst> arguments);
 	Call(const Call &other);
-	Call(Call &&other);
+	Call(Call &&other) noexcept;
 	Call &operator=(const Call &other);
 	Call &operator=(Call &&other) noexcept;
 	void children(children_cb) const override;

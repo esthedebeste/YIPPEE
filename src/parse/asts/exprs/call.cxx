@@ -15,7 +15,7 @@ Call::Call(const Location &location, ExprPtr callee, std::vector<ExprAst> argume
 Call::Call(const Call &other)
 	: AstBase(other), callee{clone(other.callee)},
 	  arguments{other.arguments} {}
-Call::Call(Call &&other) = default;
+Call::Call(Call &&other) noexcept = default;
 Call &Call::operator=(const Call &other) {
 	AstBase::operator=(other);
 	callee = clone(other.callee);

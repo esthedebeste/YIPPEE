@@ -137,15 +137,21 @@ struct Base {
 		FunctionValue value;
 	};
 	using TypeTemplate = std::function<type::Type(const std::vector<type::Type> &)>;
-	struct Scope {
-		utils::string_map<Value> values;
-		utils::string_map<TypeTemplate> types;
+	struct FunctionContainer {
+		bool can_contain_ambiguous = false;
+		FunctionContainer(bool can_contain_ambiguous = false) : can_contain_ambiguous{can_contain_ambiguous} {}
 		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, const std::vector<type::Type> &type_parameters, const std::vector<type::Type> &parameters) {
-			if (auto it = functions.find(name); it != functions.end())
+			if (auto it = functions.find(name); it != functions.end()) {
+				std::optional<GetFunctionResult> result{};
 				for (auto &func : it->second)
 					if (auto type = func.type(base, type_parameters); type && type->parameters == parameters)
 						if (auto value = func.value(base, type_parameters))
-							return GetFunctionResult{&func, *type, *value};
+							if (result)
+								throw std::runtime_error(fmt("Ambiguous function call for function '", name, "'; ", func.ast->location, " and ", result->tlf->ast->location, " both valid for this call"));
+							else
+								result = GetFunctionResult{&func, *type, *value};
+				return result;
+			}
 			return std::nullopt;
 		}
 		TopLevelFunction &emplace_function(Base *base, std::string_view string,
@@ -156,8 +162,26 @@ struct Base {
 				std::vector<type::Type> parameters;
 				for (const auto &param : ast->parameters | std::views::values)
 					parameters.push_back(base->visit(&param));
-				if (auto func = get_function(base, string, {}, parameters))
-					throw std::runtime_error(fmt("Function already exists with the same signature - ", ast->location, " and ", func->tlf->ast->location));
+				if (!can_contain_ambiguous)
+					if (auto func = get_function(base, string, {}, parameters))
+						throw std::runtime_error(fmt("Function already exists with the same signature - ", ast->location, " and ", func->tlf->ast->location));
+			}
+			if (auto it = functions.find(string); it != functions.end())
+				return it->second.emplace_back(tlf);
+			else
+				return functions
+						.emplace(std::string(string), std::vector<TopLevelFunction>{})
+						.first->second.emplace_back(tlf);
+		}
+		TopLevelFunction &emplace_function(Base *base, TopLevelFunction tlf) {
+			const auto &string = tlf.ast->name.final.str;
+			if (tlf.ast->type_arguments.empty()) {
+				std::vector<type::Type> parameters;
+				for (const auto &param : tlf.ast->parameters | std::views::values)
+					parameters.push_back(base->visit(&param));
+				if (!can_contain_ambiguous)
+					if (auto func = get_function(base, string, {}, parameters))
+						throw std::runtime_error(fmt("Function already exists with the same signature - ", tlf.ast->location, " and ", func->tlf->ast->location));
 			}
 			if (auto it = functions.find(string); it != functions.end())
 				return it->second.emplace_back(tlf);
@@ -168,7 +192,12 @@ struct Base {
 		}
 
 	private:
-		utils::string_map<std::vector<TopLevelFunction>> functions;
+		utils::string_map<std::vector<TopLevelFunction>> functions{};
+	};
+
+	struct Scope : FunctionContainer {
+		utils::string_map<Value> values;
+		utils::string_map<TypeTemplate> types;
 	};
 
 	struct Namespace : Scope {
@@ -302,8 +331,10 @@ struct Base {
 			return ns->type(name);
 		}
 	};
+
 	Namespace root_namespace{nullptr, "YIPPEE"};
 	LocalScope locals{&root_namespace};
+	FunctionContainer member_function_container{true};
 
 	type::Function function_type(const ast::top::Function &function) {
 		std::vector<type::Type> args;

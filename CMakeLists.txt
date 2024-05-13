@@ -37,6 +37,7 @@ target_sources(libyippee PRIVATE
         "src/parse/asts/exprs/subscript.cxx"
         "src/parse/asts/exprs/member.cxx"
         "src/parse/asts/exprs/call.cxx"
+        "src/parse/asts/exprs/member-call.cxx"
         "src/parse/asts/exprs/create.cxx"
         "src/parse/parser.cxx"
         "src/parse/asts/shared/type-argument.cxx"
@@ -98,6 +99,7 @@ target_sources(libyippee PUBLIC FILE_SET modules TYPE CXX_MODULES FILES
         "src/parse/asts/exprs/subscript.ixx"
         "src/parse/asts/exprs/member.ixx"
         "src/parse/asts/exprs/call.ixx"
+        "src/parse/asts/exprs/member-call.ixx"
         "src/parse/asts/exprs/create.ixx"
         "src/compile/naming.ixx"
 )

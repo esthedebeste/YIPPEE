@@ -150,8 +150,8 @@ struct Parser : reader::Reader {
 			consume(str.size());
 			return true;
 		}
-		if (std::isalnum(source[index() + str.size()])) // not a keyword, just a
-														// prefix of a name
+		if (is_id_continue(source[index() + str.size()])) // not a keyword, just a
+														  // prefix of a name
 			return false;
 		consume(str.size());
 		return true;
@@ -287,7 +287,9 @@ struct Parser : reader::Reader {
 			consume();
 		}
 		bool is_float = false;
-		if (try_consume(".")) {
+		if (peek() == '.' && std::isdigit(peek(1))) {
+			consume(); // .
+			consume(); // digit
 			is_float = true;
 			while (true) {
 				if (eof() || !std::isdigit(**this))
@@ -312,11 +314,19 @@ struct Parser : reader::Reader {
 
 		if (is_float) {
 			ast::expr::Number::float_t value;
-			std::from_chars(number.data(), number.data() + number.size(), value);
+			auto result = std::from_chars(number.data(), number.data() + number.size(), value);
+			if (result.ec == std::errc::invalid_argument)
+				error("Invalid float number");
+			if (result.ec == std::errc::result_out_of_range)
+				error("Float number out of range (compiler limitation at float", sizeof(value) * 8, ")");
 			return std::make_optional(ast::expr::Number(location, value));
 		} else {
 			ast::expr::Number::uint_t value;
-			std::from_chars(number.data(), number.data() + number.size(), value);
+			auto result = std::from_chars(number.data(), number.data() + number.size(), value);
+			if (result.ec == std::errc::invalid_argument)
+				error("Invalid integer number");
+			if (result.ec == std::errc::result_out_of_range)
+				error("Integer number out of range (compiler limitation at uint", sizeof(value) * 8, ")");
 			return std::make_optional(ast::expr::Number(location, value));
 		}
 	}
@@ -379,19 +389,7 @@ struct Parser : reader::Reader {
 		if (!try_consume("["))
 			return std::nullopt;
 		ws();
-		std::vector<ast::ExprAst> values;
-		while (true) {
-			auto value = parse_expr();
-			if (!value)
-				break;
-			values.push_back(std::move(*value));
-			ws();
-			try_consume(","); // optional trailing comma
-			ws();
-			if (try_consume("]"))
-				break;
-		}
-		ws();
+		std::vector<ast::ExprAst> values = parse_exprs(std::nullopt, "]", ",");
 		return std::make_optional(ast::expr::Array(location, std::move(values)));
 	}
 
@@ -402,21 +400,36 @@ struct Parser : reader::Reader {
 				&Parser::parse_identifier_expr);
 	}
 
-	ast::expr::Call parse_call(ast::ExprAst subject) {
-		auto location = get_loc();
-		std::vector<ast::ExprAst> arguments;
+	std::vector<ast::ExprAst> parse_exprs(const std::optional<std::string_view> &start, const std::string_view end, const std::string_view split = ",") {
+		ws();
+		if (start && !try_consume(*start))
+			return {};
+		ws();
+		if (try_consume(end))
+			return {};
+		std::vector<ast::ExprAst> exprs;
 		while (true) {
 			ws();
-			auto argument = parse_expr();
-			if (!argument)
-				break;
-			arguments.push_back(std::move(*argument));
+			auto expr = parse_expr();
+			if (!expr)
+				error("Expected expression");
+			exprs.push_back(std::move(*expr));
 			ws();
-			if (!try_consume(","))
+			if (!try_consume(split)) {
+				ws();
+				expect(end);
+				break;
+			}
+			if (try_consume(end))
 				break;
 		}
 		ws();
-		expect(")");
+		return exprs;
+	}
+
+	ast::expr::Call parse_call(ast::ExprAst subject) {
+		auto location = get_loc();
+		auto arguments = parse_exprs(std::nullopt /* start char already parsed by parse_postfix_expr */, ")");
 		return {location, std::make_unique<ast::ExprAst>(std::move(subject)),
 				std::move(arguments)};
 	}
@@ -432,13 +445,20 @@ struct Parser : reader::Reader {
 				std::make_unique<ast::ExprAst>(std::move(*index))};
 	}
 
-	ast::expr::Member parse_member(ast::ExprAst subject) {
+	ast::ExprAst parse_member(ast::ExprAst subject) {
 		auto location = get_loc();
 		const auto name = parse_name_str();
 		if (name.empty())
 			error("Expected member name");
-		return {location, std::make_unique<ast::ExprAst>(std::move(subject)),
-				std::string(name)};
+		const bool template_args = **this == '<';
+		ws();
+		if (!template_args && **this != '(')
+			return {ast::expr::Member{location, std::make_unique<ast::ExprAst>(std::move(subject)),
+									  std::string(name)}};
+		std::vector<ast::TypeAst> type_arguments = parse_type_arguments();
+		std::vector<ast::ExprAst> arguments = parse_exprs("(", ")");
+		return {ast::expr::MemberCall{location, std::make_unique<ast::ExprAst>(std::move(subject)), std::string(name),
+									  std::move(type_arguments), std::move(arguments)}};
 	}
 
 	std::optional<ast::ExprAst> parse_postfix_expr() {

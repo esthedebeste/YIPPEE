@@ -52,6 +52,8 @@ struct Reader {
 	bool eof() const { return index() >= source.size(); }
 	char operator*() const { return source[index()]; }
 	char operator[](const std::size_t i) const { return source[index() + i]; }
+	char peek() const { return source[index()]; }
+	char peek(const std::size_t i) const { return source[index() + i]; }
 	char consume() {
 		char c = source[index()];
 		index(index() + 1);

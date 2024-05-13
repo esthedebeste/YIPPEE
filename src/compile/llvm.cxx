@@ -128,6 +128,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	void visit(const ast::top::Function &function) {
 		auto ns_ = locals.ns->namespace_(function.name, false);
 		auto &tlf = ns_->emplace_function(this, function.name.final.str, ns_, &function);
+		member_function_container.emplace_function(this, tlf);
 		if (function.type_arguments.empty()) {
 			tlf.value(this, {}, true); // always compile non-templated functions
 		}
@@ -798,6 +799,31 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		} else {
 			return value_call(expr);
 		}
+	}
+
+	Value visit(const ast::expr::MemberCall &expr) {
+		std::vector args{visit(expr.callee)};
+		for (const auto &arg : expr.arguments)
+			args.push_back(visit(&arg));
+		std::vector<type::Type> type_args;
+		for (const auto &arg : expr.type_arguments)
+			type_args.push_back(visit(&arg));
+		std::vector<type::Type> arg_types;
+		for (const auto &arg : args)
+			arg_types.push_back(arg.type);
+		auto function = member_function_container.get_function(this, expr.name, type_args, arg_types);
+		if (!function)
+			throw std::runtime_error(fmt("Unknown function ", expr.name,
+										 " for the supplied arguments at ",
+										 expr.location));
+		std::vector<llvm::Value *> llvm_args;
+		for (const auto &arg : args)
+			llvm_args.push_back(arg.value);
+		auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
+										function->value, llvm_args);
+		return Value{
+				*function->type.return_type,
+				call};
 	}
 
 	Value visit(const ast::expr::Create &expr) {
