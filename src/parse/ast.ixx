@@ -34,7 +34,7 @@ export std::ostream &operator<<(std::ostream &os, const Location &location) {
 export struct AstBase {
 	Location location;
 	explicit AstBase(const Location &location) : location{location} {}
-	virtual ~AstBase() {}
+	virtual ~AstBase() = default;
 	using children_cb = std::function<void(const AstBase *)> &;
 	virtual void children(children_cb) const {}
 	// used by the graph printer to print a summary of the node.
@@ -62,8 +62,8 @@ export struct TypeArgument final : AstBase {
 	std::optional<std::unique_ptr<TypeAst>> default_type;
 	TypeArgument(const Location &location, std::string name, std::optional<std::unique_ptr<TypeAst>> default_type);
 	TypeArgument(const TypeArgument &other);
-	TypeArgument(TypeArgument &&other);
-	~TypeArgument();
+	TypeArgument(TypeArgument &&other) noexcept;
+	~TypeArgument() override;
 	TypeArgument &operator=(const TypeArgument &other);
 	TypeArgument &operator=(TypeArgument &&other) noexcept;
 	void summarize(std::ostream &os) const override;
@@ -81,8 +81,8 @@ export struct Array final : AstBase {
 	std::vector<ExprAst> values;
 	Array(const Location &location, std::vector<ExprAst> values);
 	Array(const Array &other);
-	Array(Array &&other);
-	~Array();
+	Array(Array &&other) noexcept;
+	~Array() override;
 	Array &operator=(const Array &other);
 	Array &operator=(Array &&other) noexcept;
 	void children(children_cb) const override;
@@ -93,8 +93,8 @@ export struct Binop final : AstBase {
 	std::unique_ptr<ExprAst> left, right;
 	Binop(const Location &location, std::unique_ptr<ExprAst> left, operators::binary op, std::unique_ptr<ExprAst> right);
 	Binop(const Binop &other);
-	Binop(Binop &&other);
-	~Binop();
+	Binop(Binop &&other) noexcept;
+	~Binop() override;
 	Binop &operator=(const Binop &other);
 	Binop &operator=(Binop &&other) noexcept;
 	void children(children_cb) const override;
@@ -106,7 +106,7 @@ export struct Call final : AstBase {
 	Call(const Location &location, std::unique_ptr<ExprAst> callee, std::vector<ExprAst> arguments);
 	Call(const Call &other);
 	Call(Call &&other) noexcept;
-	~Call();
+	~Call() override;
 	Call &operator=(const Call &other);
 	Call &operator=(Call &&other) noexcept;
 	void children(children_cb) const override;
@@ -118,8 +118,8 @@ export struct Comparison final : AstBase {
 	Comparison(const Location &location, std::vector<operators::comparison> ops,
 			   std::vector<ExprAst> operands);
 	Comparison(const Comparison &other);
-	Comparison(Comparison &&other);
-	~Comparison();
+	Comparison(Comparison &&other) noexcept ;
+	~Comparison() override;
 	Comparison &operator=(const Comparison &other);
 	Comparison &operator=(Comparison &&other) noexcept;
 	void children(children_cb) const override;
@@ -130,8 +130,8 @@ export struct Conditional final : AstBase {
 	Conditional(const Location &location, std::unique_ptr<ExprAst> condition, std::unique_ptr<ExprAst> thenExpr,
 				std::unique_ptr<ExprAst> elseExpr);
 	Conditional(const Conditional &other);
-	Conditional(Conditional &&other);
-	~Conditional();
+	Conditional(Conditional &&other) noexcept ;
+	~Conditional() override;
 	Conditional &operator=(const Conditional &other);
 	Conditional &operator=(Conditional &&other) noexcept;
 	void children(children_cb) const override;
@@ -143,8 +143,8 @@ export struct Create final : AstBase {
 	Create(const Location &location, std::unique_ptr<TypeAst> type,
 		   std::vector<std::pair<std::string, ExprAst>> args);
 	Create(const Create &other);
-	Create(Create &&other);
-	~Create();
+	Create(Create &&other) noexcept ;
+	~Create() override;
 	Create &operator=(const Create &other);
 	Create &operator=(Create &&other) noexcept;
 	void children(children_cb) const override;
@@ -155,8 +155,8 @@ export struct Identifier final : AstBase {
 	std::vector<TypeAst> type_arguments;
 	Identifier(const Location &location, ast::Identifier value, std::vector<TypeAst> type_arguments);
 	Identifier(const Identifier &other);
-	Identifier(Identifier &&other);
-	~Identifier();
+	Identifier(Identifier &&other) noexcept ;
+	~Identifier() override;
 	Identifier &operator=(const Identifier &other);
 	Identifier &operator=(Identifier &&other) noexcept;
 	void summarize(std::ostream &os) const override;
@@ -166,8 +166,8 @@ export struct Member final : AstBase {
 	std::string name;
 	Member(const Location &location, std::unique_ptr<ExprAst> expr, std::string name);
 	Member(const Member &other);
-	Member(Member &&other);
-	~Member();
+	Member(Member &&other) noexcept ;
+	~Member() override;
 	Member &operator=(const Member &other);
 	Member &operator=(Member &&other) noexcept;
 	void children(children_cb) const override;
@@ -181,7 +181,7 @@ export struct MemberCall final : AstBase {
 	MemberCall(const Location &location, std::unique_ptr<ExprAst> callee, std::string name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments);
 	MemberCall(const MemberCall &other);
 	MemberCall(MemberCall &&other) noexcept;
-	~MemberCall();
+	~MemberCall() override;
 	MemberCall &operator=(const MemberCall &other);
 	MemberCall &operator=(MemberCall &&other) noexcept;
 	void children(children_cb) const override;
@@ -194,7 +194,7 @@ export struct Number final : AstBase {
 	Number(const Location &location, uint_t integer);
 	Number(const Location &location, float_t fp);
 	Number(const Number &other);
-	Number(Number &&other);
+	Number(Number &&other) noexcept ;
 	Number &operator=(const Number &other);
 	Number &operator=(Number &&other) noexcept;
 	void summarize(std::ostream &os) const override;
@@ -203,8 +203,8 @@ export struct Subscript final : AstBase {
 	std::unique_ptr<ExprAst> expr, index;
 	Subscript(const Location &location, std::unique_ptr<ExprAst> expr, std::unique_ptr<ExprAst> index);
 	Subscript(const Subscript &other);
-	Subscript(Subscript &&other);
-	~Subscript();
+	Subscript(Subscript &&other) noexcept ;
+	~Subscript() override;
 	Subscript &operator=(const Subscript &other);
 	Subscript &operator=(Subscript &&other) noexcept;
 	void children(children_cb) const override;
@@ -213,10 +213,10 @@ export struct Subscript final : AstBase {
 export struct Unary final : AstBase {
 	operators::unary op;
 	std::unique_ptr<ExprAst> expr;
-	Unary(const Location &location, const operators::unary op, std::unique_ptr<ExprAst> expr);
+	Unary(const Location &location, operators::unary op, std::unique_ptr<ExprAst> expr);
 	Unary(const Unary &other);
-	Unary(Unary &&other);
-	~Unary();
+	Unary(Unary &&other) noexcept ;
+	~Unary() override;
 	Unary &operator=(const Unary &other);
 	Unary &operator=(Unary &&other) noexcept;
 	void children(children_cb) const override;
@@ -229,7 +229,7 @@ export struct Block final : AstBase {
 	Block(const Location &location, std::vector<StatementAst> statements);
 	Block(const Block &other);
 	Block(Block &&other) noexcept;
-	~Block();
+	~Block() override;
 	Block &operator=(const Block &other);
 	Block &operator=(Block &&other) noexcept;
 	void children(children_cb) const override;
@@ -240,7 +240,7 @@ export struct Expr final : AstBase {
 	Expr(const Location &location, std::unique_ptr<ExprAst> expr);
 	Expr(const Expr &other);
 	Expr(Expr &&other) noexcept;
-	~Expr();
+	~Expr() override;
 	Expr &operator=(const Expr &other);
 	Expr &operator=(Expr &&other) noexcept;
 	void children(children_cb cb) const override;
@@ -255,7 +255,7 @@ export struct For final : AstBase {
 		std::unique_ptr<StatementAst> body);
 	For(const For &other);
 	For(For &&other) noexcept;
-	~For();
+	~For() override;
 	For &operator=(const For &other);
 	For &operator=(For &&other) noexcept;
 	void children(children_cb cb) const override;
@@ -269,7 +269,7 @@ export struct If final : AstBase {
 	   std::optional<std::unique_ptr<StatementAst>> otherwise);
 	If(const If &other);
 	If(If &&other) noexcept;
-	~If();
+	~If() override;
 	If &operator=(const If &other);
 	If &operator=(If &&other) noexcept;
 	void children(children_cb cb) const override;
@@ -280,7 +280,7 @@ export struct Return final : AstBase {
 	Return(const Location &location, std::unique_ptr<ExprAst> expr);
 	Return(const Return &other);
 	Return(Return &&other) noexcept;
-	~Return();
+	~Return() override;
 	Return &operator=(const Return &other);
 	Return &operator=(Return &&other) noexcept;
 	void children(children_cb cb) const override;
@@ -294,7 +294,7 @@ export struct Variable final : AstBase {
 			 std::unique_ptr<ExprAst> expr);
 	Variable(const Variable &other);
 	Variable(Variable &&other) noexcept;
-	~Variable();
+	~Variable() override;
 	Variable &operator=(const Variable &other);
 	Variable &operator=(Variable &&other) noexcept;
 	void children(children_cb) const override;
@@ -306,7 +306,7 @@ export struct While final : AstBase {
 	While(const Location &location, std::unique_ptr<ExprAst> expr, std::unique_ptr<StatementAst> body);
 	While(const While &other);
 	While(While &&other) noexcept;
-	~While();
+	~While() override;
 	While &operator=(const While &other);
 	While &operator=(While &&other) noexcept;
 	void children(children_cb cb) const override;
@@ -338,7 +338,7 @@ export struct Namespace final : AstBase {
 	std::vector<TopLevelAst> tops;
 	Namespace(const Location &location, const Identifier &name, const std::vector<TopLevelAst> &tops);
 	Namespace(const Namespace &other);
-	Namespace(Namespace &&other);
+	Namespace(Namespace &&other) noexcept ;
 	Namespace &operator=(const Namespace &other);
 	Namespace &operator=(Namespace &&other) noexcept;
 	~Namespace() override;
@@ -353,7 +353,7 @@ export struct Struct final : AstBase {
 	Struct(const Location &location, Identifier name,
 		   std::vector<TypeArgument> type_arguments, std::vector<Field> members);
 	Struct(const Struct &other);
-	Struct(Struct &&other);
+	Struct(Struct &&other) noexcept ;
 	Struct &operator=(const Struct &other);
 	Struct &operator=(Struct &&other) noexcept;
 	~Struct() override;
@@ -380,7 +380,7 @@ export struct Named final : AstBase {
 	Named(const Location &location, Identifier name, std::vector<TypeAst> arguments);
 	Named(const Named &);
 	Named(Named &&) noexcept;
-	~Named();
+	~Named() override;
 	Named &operator=(const Named &);
 	Named &operator=(Named &&) noexcept;
 	void summarize(std::ostream &os) const override;
@@ -434,7 +434,7 @@ export namespace ast {
 struct AnyAstPtr : AnyAstPtrVariant {
 	using base = AnyAstPtrVariant;
 	using base::base;
-	const void *ptr() const {
+	const void *ptr() {
 		return visit([](auto &&v) { return static_cast<const void *>(v); });
 	}
 };

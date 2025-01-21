@@ -9,7 +9,7 @@ import utils.fmt;
 
 export class Args {
 	bool set_output(std::string out);
-	bool set_parse_tree(std::string parse_tree);
+	bool set_parse_tree(std::string pt);
 
 public:
 	std::string argv0;
@@ -46,7 +46,7 @@ Options:
 )usage";
 
 std::optional<Args> parse_args(const int argc, char **argv) {
-	constexpr auto err = [](auto str) {
+	constexpr auto err = [](const auto& str) {
 		std::cerr << "yippee: error: " << str << '\n'
 				  << USAGE;
 		return std::nullopt;
@@ -91,7 +91,7 @@ std::optional<Args> parse_args(const int argc, char **argv) {
 				}
 			}
 		} else // arg doesn't start with - or --, interpret as a file
-			args.files.push_back(std::string(arg));
+			args.files.emplace_back(arg);
 	}
 	if (args.output.empty())
 		return err("no output specified");

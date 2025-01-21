@@ -78,7 +78,7 @@ struct Parser : reader::Reader {
 		}
 		return std::nullopt;
 	}
-	ast::Location get_loc() const {
+	[[nodiscard]] ast::Location get_loc() const {
 		return ast::Location(filename, line, column);
 	}
 
@@ -523,11 +523,12 @@ struct Parser : reader::Reader {
 	template<std::size_t binary_c>
 	static auto opmatch_oneof(std::array<operators::binary, binary_c> binaries) {
 		return [binaries](Parser &p) -> std::optional<operators::binary> {
-			if (p.eof())
+			auto bin = p.parse_binary_op();
+			if (!bin)
 				return std::nullopt;
-			for (auto binary : binaries)
-				if (p.try_consume(operators::string(binary)))
-					return std::make_optional(binary);
+			for (auto option : binaries)
+				if (*bin == option)
+					return bin;
 			return std::nullopt;
 		};
 	}
@@ -540,10 +541,13 @@ struct Parser : reader::Reader {
 			return std::nullopt;
 		while (true) {
 			ws();
+			Parser p = *this;
 			std::optional<operators::binary> op = operator_matcher(*this);
-			ws();
-			if (!op)
+			if (!op) {
+				*this = p;
 				return lhs;
+			}
+			ws();
 			auto rhs = std::invoke(children, this);
 			if (!rhs)
 				error("Expected expression after ", *op);
@@ -1007,6 +1011,7 @@ struct Parser : reader::Reader {
 		const auto location = get_loc();
 		std::vector<ast::TopLevelAst> top_level_asts;
 		while (true) {
+			ws();
 			auto top_level_ast = parse_top_level();
 			if (!top_level_ast)
 				break;

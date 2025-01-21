@@ -49,11 +49,11 @@ struct Reader {
 	}
 
 	[[nodiscard]] std::size_t remaining() const { return source.size() - index(); }
-	bool eof() const { return index() >= source.size(); }
-	char operator*() const { return source[index()]; }
-	char operator[](const std::size_t i) const { return source[index() + i]; }
-	char peek() const { return source[index()]; }
-	char peek(const std::size_t i) const { return source[index() + i]; }
+	[[nodiscard]] bool eof() const { return index() >= source.size(); }
+	[[nodiscard]] char operator*() const { return source[index()]; }
+	[[nodiscard]] char operator[](const std::size_t i) const { return source[index() + i]; }
+	[[nodiscard]] char peek() const { return source[index()]; }
+	[[nodiscard]] char peek(const std::size_t i) const { return source[index() + i]; }
 	char consume() {
 		const char c = source[index()];
 		index(index() + 1);

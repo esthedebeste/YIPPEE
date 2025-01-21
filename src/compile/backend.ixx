@@ -37,6 +37,9 @@ export namespace backend {
 template<class UnderlyingValue, class FunctionValue>
 struct Base {
 	virtual ~Base() = default;
+
+	bool type_pass = true;
+
 	struct Value {
 		type::Type type;
 		UnderlyingValue value;
@@ -238,14 +241,24 @@ struct Base {
 						.emplace(std::string(string), std::vector<TopLevelFunction>{})
 						.first->second.emplace_back(tlf);
 		}
+		TopLevelFunction &get_function_by_ast(Base *base, const ast::top::Function &ast) {
+			const auto &string = ast.name.final.str;
+			auto &tlfs = functions.at(string);
+			for (auto &tlf : tlfs)
+				if (tlf.ast == &ast)
+					return tlf;
+			throw std::runtime_error("Failed to get function by ast");
+		}
 
 	private:
 		utils::string_map<std::vector<TopLevelFunction>> functions{};
 	};
 
 	struct Scope : FunctionContainer {
-		utils::string_map<Value> values;
-		utils::string_map<TypeTemplate> types;
+		using values_t = utils::string_map<Value>;
+		values_t values;
+		using types_t = utils::string_map<TypeTemplate>;
+		types_t types;
 	};
 
 	struct Namespace : Scope {
@@ -390,28 +403,40 @@ struct Base {
 			args.push_back(visit(&type));
 		return type::Function{args, visit(function.return_type)};
 	}
+
 	void visit(const ast::top::Struct &ast) {
 		const auto ns_ = locals.ns->namespace_(ast.name, false);
 		naming::FullName name{ns_->path(), ast.name.final.str};
-		if (ns_->types.contains(ast.name.final.str))
-			throw std::runtime_error(fmt("Struct '", name, "' already defined"));
 
-		auto res = ns_->types.emplace(
-				name.final,
-				GenericStruct{
-						.definition_ns = ns_,
-						.ast = ast,
-						.name = name,
-				});
+		if (type_pass) {
+			if (ns_->types.contains(ast.name.final.str))
+				throw std::runtime_error(fmt("Struct '", name, "' already defined"));
 
-		if (ast.type_arguments.empty()) {
-			// if it's not templated, check if the struct works out pre-reference by calling it,
-			// and re-assign it to a cached version.
-			res.first->second = ConstantType{
-					.name = name.final,
-					.type = get_type(res.first->second, {})};
+			ns_->types.emplace(
+					name.final,
+					GenericStruct{
+							.definition_ns = ns_,
+							.ast = ast,
+							.name = name,
+					});
+		} else {
+			auto res = ns_->types.at(name.final);
+			if (ast.type_arguments.empty()) {
+				// if it's not templated, check if the struct works out pre-reference by calling it,
+				// and re-assign it to a cached version.
+				const auto ns_ = locals.ns->namespace_(ast.name, false);
+				naming::FullName name{ns_->path(), ast.name.final.str};
+				if (ns_->types.contains(ast.name.final.str))
+					throw std::runtime_error(fmt("Struct '", name, "' already defined"));
+
+				auto &res = ns_->types.at(name.final);
+				res = ConstantType{
+						.name = name.final,
+						.type = get_type(res, {})};
+			}
 		}
 	}
+
 	type::Type visit(const ast::TypePtr &type) { return visit(type.get()); }
 	type::Type visit(const ast::TypeAst *type) {
 		return type->visit(

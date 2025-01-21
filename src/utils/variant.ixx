@@ -52,7 +52,7 @@ struct variant : std::variant<Ts...> {
 	template<class T>
 	constexpr T &get() { return std::get<T>(*this); }
 	template<class T>
-	constexpr bool is() const {
+	[[nodiscard]] constexpr bool is() const {
 		return std::holds_alternative<T>(*this);
 	}
 	constexpr bool is(std::size_t index) { return this->index() == index; }

@@ -10,7 +10,7 @@ namespace expr {
 Array::Array(const Location &location, std::vector<ExprAst> values)
 	: AstBase(location), values{std::move(values)} {}
 Array::Array(const Array &other) = default;
-Array::Array(Array &&other) = default;
+Array::Array(Array &&other) noexcept = default;
 Array::~Array() = default;
 
 Array &Array::operator=(const Array &other) = default;
@@ -27,7 +27,7 @@ Binop::Binop(const Location &location, ExprPtr left, const operators::binary op,
 Binop::Binop(const Binop &other)
 	: AstBase(other), op{other.op}, left{clone(other.left)},
 	  right{clone(other.right)} {}
-Binop::Binop(Binop &&other) = default;
+Binop::Binop(Binop &&other) noexcept = default;
 Binop::~Binop() = default;
 Binop &Binop::operator=(const Binop &other) {
 	AstBase::operator=(other);
@@ -75,7 +75,7 @@ Comparison::Comparison(const Location &location,
 					   std::vector<ExprAst> operands)
 	: AstBase(location), ops{std::move(ops)}, operands{std::move(operands)} {}
 Comparison::Comparison(const Comparison &other) = default;
-Comparison::Comparison(Comparison &&other) = default;
+Comparison::Comparison(Comparison &&other) noexcept = default;
 Comparison::~Comparison() = default;
 Comparison &Comparison::operator=(const Comparison &other) = default;
 Comparison &Comparison::operator=(Comparison &&other) noexcept = default;
@@ -101,7 +101,7 @@ Conditional::Conditional(const Conditional &other)
 	: AstBase(other.location), condition{clone(other.condition)},
 	  thenExpr{clone(other.thenExpr)},
 	  elseExpr{clone(other.elseExpr)} {}
-Conditional::Conditional(Conditional &&other) = default;
+Conditional::Conditional(Conditional &&other) noexcept = default;
 Conditional::~Conditional() = default;
 Conditional &Conditional::operator=(const Conditional &other) {
 	AstBase::operator=(other);
@@ -122,7 +122,7 @@ Create::Create(const Location &location, TypePtr type,
 	: AstBase(location), type(std::move(type)), args(std::move(args)) {}
 Create::Create(const Create &other)
 	: AstBase(other), type{clone(other.type)}, args{other.args} {}
-Create::Create(Create &&other) = default;
+Create::Create(Create &&other) noexcept = default;
 Create::~Create() = default;
 Create &Create::operator=(const Create &other) {
 	AstBase::operator=(other);
@@ -140,7 +140,7 @@ void Create::summarize(std::ostream &os) const { os << "Create"; }
 Identifier::Identifier(const Location &location, ast::Identifier value, std::vector<TypeAst> type_arguments)
 	: AstBase(location), value{std::move(value)}, type_arguments{std::move(type_arguments)} {}
 Identifier::Identifier(const Identifier &other) = default;
-Identifier::Identifier(Identifier &&other) = default;
+Identifier::Identifier(Identifier &&other) noexcept = default;
 Identifier::~Identifier() = default;
 Identifier &Identifier::operator=(const Identifier &other) = default;
 Identifier &Identifier::operator=(Identifier &&other) noexcept = default;
@@ -152,7 +152,7 @@ Member::Member(const Location &location, ExprPtr expr, std::string name)
 	: AstBase(location), expr{std::move(expr)}, name{std::move(name)} {}
 Member::Member(const Member &other)
 	: AstBase(other), expr{utils::clone(other.expr)}, name{other.name} {}
-Member::Member(Member &&other) = default;
+Member::Member(Member &&other) noexcept = default;
 Member::~Member() = default;
 Member &Member::operator=(const Member &other) {
 	AstBase::operator=(other);
@@ -194,7 +194,7 @@ Number::Number(const Location &location, uint_t integer)
 	: AstBase(location), value{integer} {}
 Number::Number(const Location &location, float_t fp) : AstBase(location), value{fp} {}
 Number::Number(const Number &other) = default;
-Number::Number(Number &&other) = default;
+Number::Number(Number &&other) noexcept = default;
 Number &Number::operator=(const Number &other) = default;
 Number &Number::operator=(Number &&other) noexcept = default;
 void Number::summarize(std::ostream &os) const {
@@ -207,7 +207,7 @@ Subscript::Subscript(const Location &location, ExprPtr expr, ExprPtr index)
 Subscript::Subscript(const Subscript &other)
 	: AstBase(other), expr{clone(other.expr)},
 	  index{clone(other.index)} {}
-Subscript::Subscript(Subscript &&other) = default;
+Subscript::Subscript(Subscript &&other) noexcept = default;
 Subscript::~Subscript() = default;
 
 Subscript &Subscript::operator=(const Subscript &other) {
@@ -226,7 +226,7 @@ Unary::Unary(const Location &location, const operators::unary op, ExprPtr expr)
 	: AstBase(location), op{op}, expr{std::move(expr)} {}
 Unary::Unary(const Unary &other)
 	: AstBase(other), op{other.op}, expr{clone(other.expr)} {}
-Unary::Unary(Unary &&other) = default;
+Unary::Unary(Unary &&other) noexcept = default;
 Unary::~Unary() = default;
 Unary &Unary::operator=(const Unary &other) {
 	AstBase::operator=(other);
@@ -259,7 +259,7 @@ void Identifier::summarize(std::ostream &os) const {
 TypeArgument::TypeArgument(const Location &location, std::string name, std::optional<TypePtr> default_type)
 	: AstBase(location), name(std::move(name)), default_type(std::move(default_type)) {}
 TypeArgument::TypeArgument(const TypeArgument &other) : AstBase(other), name(other.name), default_type(clone(other.default_type)) {}
-TypeArgument::TypeArgument(TypeArgument &&other) = default;
+TypeArgument::TypeArgument(TypeArgument &&other) noexcept = default;
 TypeArgument::~TypeArgument() = default;
 
 TypeArgument &TypeArgument::operator=(const TypeArgument &other) {
@@ -455,7 +455,7 @@ Namespace::Namespace(const Location &location, const Identifier &name,
 					 const std::vector<TopLevelAst> &tops)
 	: AstBase(location), name{name}, tops(tops) {}
 Namespace::Namespace(const Namespace &other) = default;
-Namespace::Namespace(Namespace &&other) = default;
+Namespace::Namespace(Namespace &&other) noexcept = default;
 Namespace &Namespace::operator=(const Namespace &other) = default;
 Namespace &Namespace::operator=(Namespace &&other) noexcept = default;
 Namespace::~Namespace() {}
@@ -473,7 +473,7 @@ Struct::Struct(const Location &location, Identifier name,
 	  type_arguments(std::move(type_arguments)), members(std::move(members)) {}
 
 Struct::Struct(const Struct &other) = default;
-Struct::Struct(Struct &&other) = default;
+Struct::Struct(Struct &&other) noexcept = default;
 Struct &Struct::operator=(const Struct &other) = default;
 Struct &Struct::operator=(Struct &&other) noexcept = default;
 Struct::~Struct() {}

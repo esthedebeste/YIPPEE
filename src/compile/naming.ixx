@@ -19,7 +19,7 @@ struct FullName {
 		return namespaces == other.namespaces && final == other.final;
 	}
 
-	std::string mangle() const;
+	[[nodiscard]] std::string mangle() const;
 };
 std::ostream &operator<<(std::ostream &, const FullName &);
 } // namespace naming

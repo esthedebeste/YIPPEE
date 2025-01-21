@@ -127,7 +127,6 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	llvm::BasicBlock *
 	create_block(const std::string_view name = "",
 				 llvm::BasicBlock *insert_before = nullptr) const {
-
 		return llvm::BasicBlock::Create(llvm_context, name,
 										builder->GetInsertBlock()->getParent(),
 										insert_before);
@@ -135,7 +134,6 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	llvm::BasicBlock *
 	create_block(llvm::Function *parent, const std::string_view name = "",
 				 llvm::BasicBlock *insert_before = nullptr) const {
-
 		return llvm::BasicBlock::Create(llvm_context, name, parent, insert_before);
 	}
 	void visit(const ast::Program &program) {
@@ -150,10 +148,14 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	}
 	void visit(const ast::top::Function &function) {
 		auto ns = locals.ns->namespace_(function.name, false);
-		auto &tlf = ns->emplace_function(this, function.name.final.str, ns, &function);
-		all_function_container.emplace_function(this, tlf);
-		if (function.type_arguments.empty())
-			tlf.value(this, {}, true); // always compile non-templated functions
+		if (type_pass) {
+			auto &tlf = ns->emplace_function(this, function.name.final.str, ns, &function);
+			all_function_container.emplace_function(this, tlf);
+		} else {
+			auto &tlf = ns->get_function_by_ast(this, function);
+			if (function.type_arguments.empty())
+				tlf.value(this, {}, true); // always compile non-templated functions
+		}
 	}
 	llvm::Value *generate_function_value(const TopLevelFunction &tlf, const type::Function &type) override {
 		const auto pre_generate_insert_point = builder->GetInsertBlock(); // save the caller's insert point
@@ -940,12 +942,16 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 };
 } // namespace
 
-void backend::llvm::generate_object_file(const ast::Program &program,
+void backend::llvm::generate_object_file(const std::span<ast::Program> programs,
 										 const std::string_view to) {
 	auto context = ::llvm::LLVMContext{};
-	LlvmVisitor visitor{context, std::make_unique<::llvm::Module>("main", context)};
-	visitor.mod->setSourceFileName(program.location.file);
-	visitor.visit(program);
+	LlvmVisitor visitor{context, std::make_unique<::llvm::Module>("complete", context)};
+	visitor.type_pass = true;
+	for (const auto &program : programs)
+		visitor.visit(program);
+	visitor.type_pass = false;
+	for (const auto &program : programs)
+		visitor.visit(program);
 	std::error_code ec;
 	::llvm::raw_fd_stream file(to, ec);
 	visitor.mod->print(file, nullptr, false, true);

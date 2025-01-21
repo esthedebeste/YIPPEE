@@ -19,7 +19,7 @@ export struct Array final {
 	Array &operator=(const Array &);
 	std::strong_ordering operator<=>(const Array &other) const;
 	bool operator==(const Array &other) const;
-	std::string mangle() const;
+	[[nodiscard]] std::string mangle() const;
 };
 export struct Function {
 	std::vector<Type> parameters;
@@ -31,7 +31,7 @@ export struct Function {
 	Function &operator=(const Function &);
 	std::strong_ordering operator<=>(const Function &) const;
 	bool operator==(const Function &other) const;
-	std::string mangle() const;
+	[[nodiscard]] std::string mangle() const;
 };
 export struct NamedStruct {
 	naming::FullName name;
@@ -41,7 +41,7 @@ export struct NamedStruct {
 						 std::vector<std::pair<std::string, Type>> members);
 	std::strong_ordering operator<=>(const NamedStruct &other) const;
 	bool operator==(const NamedStruct &other) const;
-	std::string mangle() const;
+	[[nodiscard]] std::string mangle() const;
 };
 export struct Pointer final {
 	std::unique_ptr<Type> pointed;
@@ -50,7 +50,7 @@ export struct Pointer final {
 	Pointer &operator=(const Pointer &);
 	std::strong_ordering operator<=>(const Pointer &other) const;
 	bool operator==(const Pointer &other) const;
-	std::string mangle() const;
+	[[nodiscard]] std::string mangle() const;
 };
 export struct Primitive final {
 	constexpr static uint8_t numeric_bit = 0b1'0'0'000;
@@ -158,7 +158,7 @@ export struct Primitive final {
 		}
 		std::unreachable();
 	}
-	std::string mangle() const;
+	[[nodiscard]] std::string mangle() const;
 };
 using type_variant = utils::variant<type::Array, type::Function, type::NamedStruct,
 									type::Pointer, type::Primitive>;
@@ -189,7 +189,7 @@ export struct Type : type_variant {
 			return cmp;
 		return base::operator<=>(other);
 	}
-	std::string mangle() const;
+	[[nodiscard]] std::string mangle() const;
 };
 export extern const Primitive boolean;
 export extern const Primitive uint8;

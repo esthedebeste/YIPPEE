@@ -18,10 +18,11 @@ TODO (highest to lowest priority):
 	- [x] (☆) weak linkage (backend)
 - [x] (☆) member function call (`fun double(x: int32)` callable as `x.double()`) (parser, ast, backend)
 - [x] (☆☆) operator overloading (parser, ~~ast~~, backend)
-- [ ] (☆☆) boolean logic (parser, ast, backend)
-- [ ] (☆☆☆) infer template arguments (backend?)
-- [ ] (☆☆☆☆☆) `import` statement loads a file as type declarations. (parser, ast, backend)
+- [x] (☆☆) boolean logic (parser, ast, backend)
+- [x] ~~[ ] (☆☆☆☆☆) `import` statement loads a file as type declarations. (parser, ast, backend)~~  
+  Compiling multiple files works position-independently
 	- [ ] (☆☆☆) get started on a standard library (...?, stdlib)
+- [ ] (☆☆☆) Recursion (parser, ast, backend)
 - [ ] (☆☆☆) `possible(...)` expression (parser, ast, backend)
 	- [ ] (☆☆☆☆) template argument constraints (parser, ast, backend)
 - [ ] (☆☆☆☆) compile directly to exe (backend)
@@ -30,6 +31,7 @@ TODO (highest to lowest priority):
 - [ ] (☆☆☆☆☆☆☆☆☆☆) RAII, constructors, destructors, and the such (parser, ast, backend)
 - [ ] (☆) allow reordering of fields in `create` (C++ doesn't support this either so I'm letting this one sit) (backend)
 - [ ] (☆☆☆) infer template arguments in `create` (backend?)
+- [ ] (☆☆☆) infer template arguments (backend?)
 
 not sure how to design:
 
