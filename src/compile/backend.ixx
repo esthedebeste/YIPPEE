@@ -154,6 +154,7 @@ struct Base {
 		const ast::top::Struct &ast;
 		naming::FullName name;
 	};
+	std::unordered_map<std::string, type::Type> named_struct_types;
 	type::Type get_type(const GenericStruct &generic_struct, std::span<type::Type> arguments) {
 		LocalScope old_locals(generic_struct.definition_ns);
 		// when generating the template, return back to namespace of definition
@@ -176,9 +177,13 @@ struct Base {
 					ConstantType{.name = argument.name, .type = argtype});
 			type_arguments.push_back(argtype);
 		}
-		type::NamedStruct result{generic_struct.name, type_arguments, {}};
-		for (const auto &[name, type] : generic_struct.ast.members)
-			result.members.emplace_back(name, visit(&type));
+		type::NamedStruct init{generic_struct.name, type_arguments, {}};
+		std::string name = init.mangle();
+		auto [it, added] = named_struct_types.try_emplace(name, std::move(init));
+		auto &result = it->second.get<type::NamedStruct>();
+		if (added)
+			for (const auto &[name, type] : generic_struct.ast.members)
+				result.members.emplace_back(name, visit(&type));
 		locals.pop_back();
 		std::swap(locals, old_locals);
 		return result;
@@ -426,8 +431,6 @@ struct Base {
 				// and re-assign it to a cached version.
 				const auto ns_ = locals.ns->namespace_(ast.name, false);
 				naming::FullName name{ns_->path(), ast.name.final.str};
-				if (ns_->types.contains(ast.name.final.str))
-					throw std::runtime_error(fmt("Struct '", name, "' already defined"));
 
 				auto &res = ns_->types.at(name.final);
 				res = ConstantType{

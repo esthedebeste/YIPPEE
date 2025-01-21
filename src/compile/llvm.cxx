@@ -97,13 +97,13 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	llvm::Type *llvm_type(const type::Pointer &type) {
 		return llvm::PointerType::get(llvm_type(*type.pointed), 0);
 	}
-	std::unordered_map<std::string, llvm::Type *> named_structs;
+	std::unordered_map<std::string, llvm::Type *> named_struct_llvm_types;
 	llvm::Type *llvm_type(const type::NamedStruct &type) {
 		auto name = type.mangle();
-		if (const auto it = named_structs.find(name); it != named_structs.end())
+		if (const auto it = named_struct_llvm_types.find(name); it != named_struct_llvm_types.end())
 			return it->second;
 		auto struct_ = llvm::StructType::create(llvm_context, name);
-		named_structs.emplace(name, struct_);
+		named_struct_llvm_types.emplace(name, struct_);
 		std::vector<llvm::Type *> elements;
 		for (const auto &field : type.members | std::views::values)
 			elements.push_back(llvm_type(field));
@@ -125,14 +125,14 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		return type.visit([&](const auto &type) { return llvm_type(type); });
 	}
 	llvm::BasicBlock *
-	create_block(const std::string_view name = "",
+	create_block(const std::string_view name = "tmp",
 				 llvm::BasicBlock *insert_before = nullptr) const {
 		return llvm::BasicBlock::Create(llvm_context, name,
 										builder->GetInsertBlock()->getParent(),
 										insert_before);
 	}
 	llvm::BasicBlock *
-	create_block(llvm::Function *parent, const std::string_view name = "",
+	create_block(llvm::Function *parent, const std::string_view name = "tmp",
 				 llvm::BasicBlock *insert_before = nullptr) const {
 		return llvm::BasicBlock::Create(llvm_context, name, parent, insert_before);
 	}
@@ -320,7 +320,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 						llvm::PointerType::get(llvm::Type::getInt8Ty(llvm_context), 0),
 						true));
 		builder->CreateCall(
-				printf, {builder->CreateGlobalStringPtr(format_str), value.value});
+				printf, {builder->CreateGlobalStringPtr(format_str), value.value}, "tmp");
 	}
 
 	void visit(const ast::stmt::Variable &statement) {
@@ -356,7 +356,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		loaded_type.is_const = false;
 		loaded_type.is_ref = false;
 		const auto loaded =
-				builder->CreateLoad(llvm_type(loaded_type), value.value);
+				builder->CreateLoad(llvm_type(loaded_type), value.value, "tmp");
 		return Value{loaded_type, loaded};
 	}
 	/// If value is a reference, returns it.
@@ -364,12 +364,12 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	Value mkref(Value value) {
 		if (value.type.is_ref)
 			return value;
-		auto loaded_type = value.type; // copy
-		loaded_type.is_const = false;
-		loaded_type.is_ref = false;
-		const auto loaded =
-				builder->CreateLoad(llvm_type(loaded_type), value.value);
-		return Value{loaded_type, loaded};
+		auto ref_type = value.type; // copy
+		ref_type.is_const = false;
+		ref_type.is_ref = true;
+		const auto alloca = builder->CreateAlloca(llvm_type(value.type), nullptr, "tmp");
+		builder->CreateStore(value.value, alloca);
+		return Value{ref_type, alloca};
 	}
 	template<const type::Type &left, const operators::binary op, llvm::Value *(*Lambda)(LlvmVisitor &, llvm::Value *, llvm::Value *), const type::Type &right = left, const type::Type &result = left>
 	static std::pair<operation::Binary, bop_generator>
@@ -382,7 +382,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	}
 #define BUILDER_FUNCTION(name)                                        \
 	[](LlvmVisitor &visitor, llvm::Value *left, llvm::Value *right) { \
-		return visitor.builder->name(left, right);                    \
+		return visitor.builder->name(left, right, "tmp");             \
 	}
 	static std::vector<std::pair<operation::Binary, bop_generator>>
 	builtin_binary_operations() {
@@ -441,7 +441,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 						const auto ty = llvm::Type::getFloatTy(visitor.llvm_context);
 						return static_cast<llvm::Value *>(visitor.builder->CreateCall(
 								visitor.mod->getOrInsertFunction("llvm.pow.f32", ty, ty, ty),
-								{left, right}));
+								{left, right}, "tmp"));
 					}>());
 		bops.push_back(
 				bop<t_double, operators::pow,
@@ -449,7 +449,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 						const auto ty = llvm::Type::getDoubleTy(visitor.llvm_context);
 						return static_cast<llvm::Value *>(visitor.builder->CreateCall(
 								visitor.mod->getOrInsertFunction("llvm.pow.f64", ty, ty, ty),
-								{left, right}));
+								{left, right}, "tmp"));
 					}>());
 		return bops;
 	}
@@ -492,7 +492,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		right_bb = builder->GetInsertBlock();
 		// merge
 		builder->SetInsertPoint(merge_bb);
-		auto phi = builder->CreatePHI(llvm_type(type::boolean), 2);
+		auto phi = builder->CreatePHI(llvm_type(type::boolean), 2, "tmp");
 		phi->addIncoming(left.value, left_bb);
 		phi->addIncoming(right.value, right_bb);
 		return Value{type::boolean, phi};
@@ -514,7 +514,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		auto types = std::array{lvalue.type, rvalue.type};
 		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
 			auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-											function->value, std::array{lvalue.value, rvalue.value});
+											function->value, std::array{lvalue.value, rvalue.value}, "tmp");
 			return Value{
 					*function->type.return_type,
 					call};
@@ -530,7 +530,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		types = std::array{lvalue.type, rvalue.type};
 		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
 			auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-											function->value, std::array{lvalue.value, rvalue.value});
+											function->value, std::array{lvalue.value, rvalue.value}, "tmp");
 			return Value{
 					*function->type.return_type,
 					call};
@@ -589,7 +589,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		const auto end_block = create_block();
 		builder->SetInsertPoint(end_block);
 		const auto result_type = type::t_boolean;
-		const auto phi = builder->CreatePHI(llvm_type(result_type), 2);
+		const auto phi = builder->CreatePHI(llvm_type(result_type), 2, "tmp");
 		builder->SetInsertPoint(start_block);
 		for (const auto &[sindex, expr_op] : expr.ops | std::views::enumerate) {
 			const size_t index = sindex;
@@ -697,7 +697,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		const auto true_value = visit(expr.thenExpr);
 		const auto true_end_block = builder->GetInsertBlock();
 		builder->SetInsertPoint(end_block);
-		const auto phi = builder->CreatePHI(llvm_type(true_value.type), 2);
+		const auto phi = builder->CreatePHI(llvm_type(true_value.type), 2, "tmp");
 		builder->SetInsertPoint(true_end_block);
 		builder->CreateBr(end_block);
 		phi->addIncoming(true_value.value, true_end_block);
@@ -742,7 +742,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		return Value{
 				*funtype.return_type,
 				builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(funtype)),
-									function.value, args)};
+									function.value, args, "tmp")};
 	}
 
 	Value name_call(const ast::expr::Call &expr) {
@@ -765,7 +765,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		for (const auto &arg : args)
 			llvm_args.push_back(arg.value);
 		auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-										function->value, llvm_args);
+										function->value, llvm_args, "tmp");
 		return Value{
 				*function->type.return_type,
 				call};
@@ -798,7 +798,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		for (const auto &arg : args)
 			llvm_args.push_back(arg.value);
 		auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-										function->value, llvm_args);
+										function->value, llvm_args, "tmp");
 		return Value{
 				*function->type.return_type,
 				call};
@@ -827,7 +827,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 			auto value = deref(visit(&arg));
 			if (value.type != member.second)
 				throw std::runtime_error(fmt("Member type mismatch ", expr.location));
-			auto member_alloc = builder->CreateStructGEP(struct_, alloca, static_cast<uint32_t>(index));
+			auto member_alloc = builder->CreateStructGEP(struct_, alloca, static_cast<uint32_t>(index), "tmp");
 			builder->CreateStore(value.value, member_alloc);
 		}
 		type.is_const = true;
@@ -850,7 +850,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 			type::Type member_type = *pointer_type.pointed;
 			member_type.is_ref = false;
 			member_type.is_const = value.type.is_const;
-			auto gep = builder->CreateGEP(llvm_type(member_type), value.value, index.value);
+			auto gep = builder->CreateGEP(llvm_type(member_type), value.value, index.value, "tmp");
 			member_type.is_ref = true;
 			return Value{member_type, gep};
 		}
@@ -861,7 +861,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 			member_type.is_ref = true;
 			member_type.is_const = value.type.is_const;
 			auto gep = builder->CreateGEP(llvm_type(array_type), value.value,
-										  {llvm::ConstantInt::get(llvm_type(index.type), 0), index.value});
+										  {llvm::ConstantInt::get(llvm_type(index.type), 0), index.value}, "tmp");
 			return Value{member_type, gep};
 		}
 		throw std::runtime_error(
@@ -880,14 +880,14 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		non_ref_array_type.is_ref = false;
 		auto alloca = builder->CreateAlloca(llvm_type(array_type), nullptr, "alloca");
 		auto llvm_array = llvm_type(non_ref_array_type);
-		builder->CreateStore(first.value, builder->CreateStructGEP(llvm_array, alloca, 0));
+		builder->CreateStore(first.value, builder->CreateStructGEP(llvm_array, alloca, 0, "tmp"));
 		for (const auto &[index, value] :
 			 std::views::enumerate(expr.values | std::views::drop(1))) {
 			auto value_ = deref(visit(&value));
 			if (value_.type != member_type)
 				throw std::runtime_error(fmt("Array member type mismatch ",
 											 expr.location));
-			auto member_ptr = builder->CreateStructGEP(llvm_array, alloca, static_cast<uint32_t>(index + 1));
+			auto member_ptr = builder->CreateStructGEP(llvm_array, alloca, static_cast<uint32_t>(index + 1), "tmp");
 			builder->CreateStore(value_.value, member_ptr);
 		}
 		return Value{array_type, alloca};
@@ -909,7 +909,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 				auto unref_value_type = value.type;
 				unref_value_type.is_ref = false;
 				return Value{member_type,
-							 builder->CreateStructGEP(llvm_type(unref_value_type), value.value, static_cast<uint32_t>(index))};
+							 builder->CreateStructGEP(llvm_type(unref_value_type), value.value, static_cast<uint32_t>(index), "tmp")};
 			}
 		}
 		throw std::runtime_error(fmt("Unknown member '", expr.name, "' in struct '",
