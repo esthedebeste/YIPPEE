@@ -1,5 +1,7 @@
 module;
+#include <charconv>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -10,11 +12,13 @@ module;
 #include <string_view>
 #include <typeinfo>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 module parser;
 import reader;
 import utils;
 import operators;
+import type;
 
 namespace {
 auto take_first() { return std::nullopt; }
@@ -136,7 +140,7 @@ struct Parser : reader::Reader {
 			return {};
 		while (true) {
 			if (eof() || !is_id_continue(**this)) {
-				std::string_view name{source.data() + start, index() - start};
+				const std::string_view name{source.data() + start, index() - start};
 				if (name == "operator") {
 #define OPERATOR_LOOP(array)           \
 	for (std::string_view str : array) \
@@ -171,15 +175,15 @@ struct Parser : reader::Reader {
 	}
 
 	std::optional<ast::Name> parse_name() {
-		auto location = get_loc();
-		auto name = parse_name_str();
+		const auto location = get_loc();
+		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
 		return std::make_optional(ast::Name(location, std::string(name)));
 	}
 
 	std::optional<ast::Identifier> parse_identifier() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		std::vector<ast::Name> names;
 		while (true) {
 			auto name = parse_name();
@@ -195,12 +199,12 @@ struct Parser : reader::Reader {
 	// types
 
 	ast::type::Pointer parse_pointer_type(ast::TypeAst type) {
-		auto location = get_loc();
+		const auto location = get_loc();
 		ws();
 		return ast::type::Pointer(location, std::make_unique<ast::TypeAst>(type));
 	}
 	ast::type::Array parse_array_type(ast::TypeAst type) {
-		auto location = get_loc();
+		const auto location = get_loc();
 		ws();
 		auto size = parse_literal_expr();
 		if (!size)
@@ -214,18 +218,18 @@ struct Parser : reader::Reader {
 								size->value.get<ast::expr::Number::uint_t>());
 	}
 	std::optional<ast::type::Primitive> parse_primitive_type() {
-		auto location = get_loc();
-		auto name = parse_name_str();
+		const auto location = get_loc();
+		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
-		auto it = primitive_types.find(name);
+		const auto it = primitive_types.find(name);
 		if (it == primitive_types.end())
 			return std::nullopt;
 		return std::make_optional(ast::type::Primitive(location, type::Primitive(it->second)));
 	}
 	std::optional<ast::type::Named> parse_named_type() {
-		auto location = get_loc();
-		auto id = parse_identifier();
+		const auto location = get_loc();
+		const auto id = parse_identifier();
 		if (!id)
 			return std::nullopt;
 		std::vector<ast::TypeAst> parameters{};
@@ -278,7 +282,7 @@ struct Parser : reader::Reader {
 		return std::nullopt;
 	}
 	std::optional<ast::expr::Unary> parse_unary() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		auto op = parse_unary_op();
 		if (!op)
 			return std::nullopt;
@@ -290,8 +294,8 @@ struct Parser : reader::Reader {
 	}
 
 	std::optional<ast::expr::Number> parse_literal_expr() {
-		auto location = get_loc();
-		std::size_t start = index();
+		const auto location = get_loc();
+		const std::size_t start = index();
 		if (!std::isdigit(**this))
 			return std::nullopt;
 		while (true) {
@@ -322,8 +326,7 @@ struct Parser : reader::Reader {
 				consume();
 			}
 		}
-		std::string_view number =
-				std::string_view(source.data() + start, index() - start);
+		std::string_view number{source.data() + start, index() - start};
 
 		if (is_float) {
 			ast::expr::Number::float_t value;
@@ -357,7 +360,7 @@ struct Parser : reader::Reader {
 	}
 
 	std::optional<ast::expr::Create> parse_create_expr() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!try_consume("create"))
 			return std::nullopt;
 		ws();
@@ -390,15 +393,15 @@ struct Parser : reader::Reader {
 				location, std::make_unique<ast::TypeAst>(*type), std::move(arguments)));
 	}
 	std::optional<ast::expr::Identifier> parse_identifier_expr() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		auto id = parse_identifier();
 		if (!id)
 			return std::nullopt;
-		auto type_arguments = parse_type_arguments();
+		const auto type_arguments = parse_type_arguments();
 		return std::make_optional(ast::expr::Identifier(location, std::move(*id), type_arguments));
 	}
 	std::optional<ast::expr::Array> parse_array_expr() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!try_consume("["))
 			return std::nullopt;
 		ws();
@@ -459,7 +462,7 @@ struct Parser : reader::Reader {
 	}
 
 	ast::ExprAst parse_member(ast::ExprAst subject) {
-		auto location = get_loc();
+		const auto location = get_loc();
 		const auto name = parse_name_str();
 		if (name.empty())
 			error("Expected member name");
@@ -509,7 +512,7 @@ struct Parser : reader::Reader {
 		for (auto op : operators::all_binaries()) {
 			if (op == operators::binary::assign && try_consume("=="))
 				return std::nullopt;
-			auto str = string(op);
+			const auto str = string(op);
 			if (try_consume(str)) {
 				return std::make_optional(op);
 			}
@@ -531,7 +534,7 @@ struct Parser : reader::Reader {
 
 	std::optional<ast::ExprAst> parse_binop(auto operator_matcher,
 											parser_t<ast::ExprAst> children) {
-		auto location = get_loc();
+		const auto location = get_loc();
 		auto lhs = std::invoke(children, this);
 		if (!lhs)
 			return std::nullopt;
@@ -589,8 +592,7 @@ struct Parser : reader::Reader {
 						   &Parser::parse_bitwise_xor);
 	}
 
-	__declspec(
-			noinline) std::optional<operators::comparison> parse_comparison_op() {
+	std::optional<operators::comparison> parse_comparison_op() {
 		for (auto op : operators::all_comparisons()) {
 			auto str = string(op);
 			if (try_consume(str))
@@ -599,7 +601,7 @@ struct Parser : reader::Reader {
 		return std::nullopt;
 	}
 	std::optional<ast::ExprAst> parse_comparison() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		auto first = parse_bitwise_or();
 		if (!first)
 			return std::nullopt;
@@ -639,7 +641,7 @@ struct Parser : reader::Reader {
 						   &Parser::parse_logical_and);
 	}
 	std::optional<ast::ExprAst> parse_conditional() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		auto condition = parse_logical_or();
 		if (!condition)
 			return std::nullopt;
@@ -683,7 +685,7 @@ struct Parser : reader::Reader {
 	// statements
 
 	std::optional<ast::stmt::Block> parse_block() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!try_consume("{"))
 			return std::nullopt;
 		ws();
@@ -699,8 +701,8 @@ struct Parser : reader::Reader {
 				ast::stmt::Block(location, std::move(statements)));
 	}
 	std::optional<ast::stmt::Variable> parse_variable_declaration() {
-		auto location = get_loc();
-		auto name = parse_name_str();
+		const auto location = get_loc();
+		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
 		ws();
@@ -731,7 +733,7 @@ struct Parser : reader::Reader {
 				std::make_unique<ast::ExprAst>(std::move(*expr))));
 	}
 	std::optional<ast::stmt::If> parse_if() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!keyword("if"))
 			return std::nullopt;
 		ws();
@@ -758,7 +760,7 @@ struct Parser : reader::Reader {
 						  : std::nullopt));
 	}
 	std::optional<ast::stmt::While> parse_while() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!keyword("while"))
 			return std::nullopt;
 		ws();
@@ -773,7 +775,7 @@ struct Parser : reader::Reader {
 				std::make_unique<ast::StatementAst>(std::move(*body))));
 	}
 	std::optional<ast::stmt::For> parse_for() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!keyword("for"))
 			return std::nullopt;
 		ws();
@@ -801,7 +803,7 @@ struct Parser : reader::Reader {
 				std::make_unique<ast::StatementAst>(std::move(*body))));
 	}
 	std::optional<ast::stmt::Return> parse_return() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!keyword("return"))
 			return std::nullopt;
 		ws();
@@ -817,7 +819,7 @@ struct Parser : reader::Reader {
 	}
 
 	std::optional<ast::stmt::Expr> parse_expr_statement() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		auto expr = parse_expr();
 		if (!expr)
 			return std::nullopt;
@@ -892,7 +894,7 @@ struct Parser : reader::Reader {
 	// toplevels
 
 	std::optional<ast::top::Namespace> parse_namespace() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!keyword("namespace"))
 			return std::nullopt;
 		must_ws();
@@ -917,7 +919,7 @@ struct Parser : reader::Reader {
 				location, std::move(*identifier), std::move(top_level_asts)));
 	}
 	std::optional<ast::top::Function> parse_function() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!keyword("fun"))
 			return std::nullopt;
 		must_ws();
@@ -961,7 +963,7 @@ struct Parser : reader::Reader {
 				std::make_unique<ast::StatementAst>(std::move(*body))));
 	}
 	std::optional<ast::top::Struct> parse_struct() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		if (!keyword("struct"))
 			return std::nullopt;
 		must_ws();
@@ -1002,7 +1004,7 @@ struct Parser : reader::Reader {
 	// program
 
 	ast::Program parse_program() {
-		auto location = get_loc();
+		const auto location = get_loc();
 		std::vector<ast::TopLevelAst> top_level_asts;
 		while (true) {
 			auto top_level_ast = parse_top_level();
@@ -1022,6 +1024,7 @@ namespace parser {
 ast::Program parse_program(const std::string_view filename,
 						   const std::string_view content) {
 	Parser parser(filename, content);
-	return parser.parse_program();
+	return
+	parser.parse_program();
 }
 } // namespace parser

@@ -1,7 +1,7 @@
 module;
 #include <string_view>
 export module backend.llvm;
-import ast.program;
+import ast;
 
 export namespace backend::llvm {
 void generate_object_file(const ast::Program &program, std::string_view to);

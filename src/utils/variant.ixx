@@ -15,9 +15,9 @@ struct variant : std::variant<Ts...> {
 		requires(sizeof...(Ots) > 0 && pack_contains<std::monostate, Ts...> &&
 				 (pack_contains<Ots, Ts...> && ...))
 	constexpr variant(variant<Ots...> &&other) noexcept : base{std::monostate{}} {
-		other.visit([&](auto &&v) {
-			this->template emplace<std::decay_t<decltype(v)>>(
-					std::forward<decltype(v)>(v));
+		other.visit([&]<typename T>(T &&v) {
+			this->template emplace<std::decay_t<T>>(
+					std::forward<T>(v));
 		});
 	}
 	template<class... Ots>
@@ -25,8 +25,8 @@ struct variant : std::variant<Ts...> {
 				 (pack_contains<Ots, Ts...> && ...))
 	constexpr variant(const variant<Ots...> &other) noexcept
 		: base{std::monostate{}} {
-		other.visit([&](auto &&v) {
-			this->template emplace<std::decay_t<decltype(v)>>(v);
+		other.visit([&]<typename T>(T &&v) {
+			this->template emplace<std::decay_t<T>>(v);
 		});
 	}
 	constexpr variant(const variant &other) noexcept = default;
@@ -39,7 +39,7 @@ struct variant : std::variant<Ts...> {
 	static consteval std::size_t size() { return sizeof...(Ts); }
 	template<class T>
 	static consteval std::size_t index_of() {
-		return index_in_pack<T, Ts...>::value;
+		return index_in_pack<T, Ts...>;
 	};
 	template<class T>
 	static consteval bool contains() {

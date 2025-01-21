@@ -11,9 +11,9 @@ struct type_holder {
 
 	template<class T>
 	static consteval std::size_t index_of() {
-		return index_in_pack<T, Ts...>::value;
+		return index_in_pack<T, Ts...>;
 	};
-	type_holder(const std::size_t index) : index(index) {}
+	explicit type_holder(const std::size_t index) : index(index) {}
 	template<class T>
 	type_holder() : index(index_of<T, Ts...>) {}
 	template<class T>
@@ -21,9 +21,9 @@ struct type_holder {
 	static consteval std::size_t size() { return sizeof...(Ts); }
 	template<class T>
 	constexpr bool is() const {
-		return this->index() == index_of<T>();
+		return this->index == index_of<T>();
 	}
-	constexpr bool is(std::size_t index) { return this->index() == index; }
+	constexpr bool is(std::size_t index) { return this->index == index; }
 	template<class... Fs>
 	constexpr auto visit(Fs... fs) {
 		auto to_call = overloaded{fs...};
@@ -41,7 +41,7 @@ struct type_holder {
 		(
 				[&] {
 					using T = Ts;
-					if (is<T>)
+					if (is<T>())
 						to_call.template operator()<T>();
 				}(),
 				...);
@@ -70,8 +70,8 @@ struct type_holder {
 		});
 	}
 
-	bool operator<=>(const type_holder &other) const {
-		return other.index() <=> this->index();
+	std::strong_ordering operator<=>(const type_holder &other) const {
+		return other.index <=> this->index;
 	}
 };
 } // namespace utils

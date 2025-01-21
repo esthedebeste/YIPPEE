@@ -99,7 +99,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 	}
 	std::unordered_map<std::string, llvm::Type *> named_structs;
 	llvm::Type *llvm_type(const type::NamedStruct &type) {
-		auto name = naming::mangle(type);
+		auto name = type.mangle();
 		if (const auto it = named_structs.find(name); it != named_structs.end())
 			return it->second;
 		auto struct_ = llvm::StructType::create(llvm_context, name);
@@ -163,7 +163,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		// LocalScope old_locals(ns);
 		// std::swap(locals, old_locals); // save the caller's locals // TopLevelFunction::value already does this and is this function's only caller. it also sets up template arguments into locals.
 		locals.emplace_back(); // preargs
-		auto mangled_name = mangle(name, type);
+		auto mangled_name = name.mangle() + type.mangle();
 		if (name == naming::FullName{{root_namespace.name}, "main"} &&
 			*type.return_type == type::t_int32) {
 			// int main is special <3 until we eventually
@@ -589,7 +589,8 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		const auto result_type = type::t_boolean;
 		const auto phi = builder->CreatePHI(llvm_type(result_type), 2);
 		builder->SetInsertPoint(start_block);
-		for (const auto &[index, expr_op] : expr.ops | std::views::enumerate) {
+		for (const auto &[sindex, expr_op] : expr.ops | std::views::enumerate) {
+			const size_t index = sindex;
 			const bool is_last = index == expr.ops.size() - 1;
 			auto rvalue = visit(&expr.operands[index + 1]);
 			auto find_op = [&]() {
@@ -812,8 +813,9 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 					fmt("Wrong number of members for struct ", expr.location));
 		auto alloca = builder->CreateAlloca(llvm_type(type), nullptr, "alloca");
 		auto struct_ = llvm::cast<llvm::StructType>(llvm_type(type));
-		for (const auto &[index, member] :
+		for (const auto &[sindex, member] :
 			 std::views::enumerate(type.get<type::NamedStruct>().members)) {
+			const size_t index = sindex;
 			const auto &[name, arg] = expr.args[index];
 			// TODO: support name reordering
 			if (!name.empty() && name != member.first)
@@ -876,14 +878,14 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		non_ref_array_type.is_ref = false;
 		auto alloca = builder->CreateAlloca(llvm_type(array_type), nullptr, "alloca");
 		auto llvm_array = llvm_type(non_ref_array_type);
-		builder->CreateStore(first.value, builder->CreateConstGEP2_64(llvm_array, alloca, 0, 0));
+		builder->CreateStore(first.value, builder->CreateStructGEP(llvm_array, alloca, 0));
 		for (const auto &[index, value] :
 			 std::views::enumerate(expr.values | std::views::drop(1))) {
 			auto value_ = deref(visit(&value));
 			if (value_.type != member_type)
 				throw std::runtime_error(fmt("Array member type mismatch ",
 											 expr.location));
-			auto member_ptr = builder->CreateConstGEP2_64(llvm_array, alloca, 0, index + 1);
+			auto member_ptr = builder->CreateStructGEP(llvm_array, alloca,index + 1);
 			builder->CreateStore(value_.value, member_ptr);
 		}
 		return Value{array_type, alloca};
@@ -905,8 +907,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 				auto unref_value_type = value.type;
 				unref_value_type.is_ref = false;
 				return Value{member_type,
-							 builder->CreateStructGEP(llvm_type(unref_value_type),
-													  value.value, index)};
+							 builder->CreateStructGEP(llvm_type(unref_value_type), value.value, index)};
 			}
 		}
 		throw std::runtime_error(fmt("Unknown member '", expr.name, "' in struct '",
@@ -943,6 +944,7 @@ void backend::llvm::generate_object_file(const ast::Program &program,
 										 const std::string_view to) {
 	auto context = ::llvm::LLVMContext{};
 	LlvmVisitor visitor{context, std::make_unique<::llvm::Module>("main", context)};
+	visitor.mod->setSourceFileName(program.location.file);
 	visitor.visit(program);
 	std::error_code ec;
 	::llvm::raw_fd_stream file(to, ec);

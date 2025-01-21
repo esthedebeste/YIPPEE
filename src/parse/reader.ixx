@@ -33,7 +33,7 @@ struct Reader {
 		}
 		return m_index;
 	}
-	Reader(const std::string_view source)
+	explicit Reader(const std::string_view source)
 		: source(source), m_index(0), line(1), column(1) {}
 	Reader(const std::string_view source, const std::size_t index, const std::size_t line,
 		   const std::size_t column)
@@ -55,7 +55,7 @@ struct Reader {
 	char peek() const { return source[index()]; }
 	char peek(const std::size_t i) const { return source[index() + i]; }
 	char consume() {
-		char c = source[index()];
+		const char c = source[index()];
 		index(index() + 1);
 		return c;
 	}

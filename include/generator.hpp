@@ -1,6 +1,9 @@
 // https://github.com/lewissbaker/generator/blob/e7c6c1c/include/__generator.hpp
 #ifndef __STD_GENERATOR_INCLUDED
 #define __STD_GENERATOR_INCLUDED
+#if __has_include(<generator> )
+#include <generator>
+#else
 ///////////////////////////////////////////////////////////////////////////////
 // Reference implementation of std::generator proposal P2168.
 //
@@ -775,5 +778,5 @@ constexpr inline bool enable_view<generator<_T, _U, _Alloc>> = true;
 #endif
 
 } // namespace std
-
+#endif // has_include <generator.h>
 #endif // __STD_GENERATOR_INCLUDED

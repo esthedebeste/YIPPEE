@@ -5,6 +5,7 @@ module;
 #include <string>
 #include <vector>
 export module cli.args;
+import utils.fmt;
 
 export class Args {
 	bool set_output(std::string out);
@@ -21,7 +22,6 @@ public:
 export std::optional<Args> parse_args(int argc, char **argv);
 
 module :private;
-import utils.fmt;
 
 bool Args::set_output(std::string out) {
 	if (!output.empty())

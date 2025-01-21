@@ -55,7 +55,8 @@ struct Base {
 			std::swap(base->locals, old_locals);
 			base->locals.emplace_back();
 			std::vector<type::Type> type_arguments{};
-			for (const auto &[index, argument] : std::views::enumerate(ast->type_arguments)) {
+			for (const auto &[sindex, argument] : std::views::enumerate(ast->type_arguments)) {
+				const size_t index = sindex;
 				std::optional<type::Type> type;
 				if (index < type_parameters.size())
 					type = type_parameters[index];
@@ -64,15 +65,8 @@ struct Base {
 				if (!type)
 					return std::nullopt;
 				type::Type argtype = std::move(*type);
-				base->locals.back().types.emplace(
-						argument.name,
-						[argument, argtype](std::span<type::Type> arguments) {
-							if (!arguments.empty())
-								throw std::runtime_error(fmt("Type arguments for type '",
-															 argument.name,
-															 "' are not allowed"));
-							return argtype;
-						});
+				base->locals.back().types.emplace(argument.name,
+												  ConstantType{.name = argument.name, .type = argtype});
 				type_arguments.push_back(argtype);
 			}
 			std::optional<type::Function> result{};
@@ -80,9 +74,9 @@ struct Base {
 				std::vector<type::Type> args;
 				for (const ast::TypeAst &type : ast->parameters | std::views::values)
 					args.push_back(std::move(base->visit(&type)));
-				type::Type return_type = base->visit(ast->return_type);
+				const type::Type return_type = base->visit(ast->return_type);
 				result = type::Function{args, return_type};
-			} catch (std::runtime_error &e) {
+			} catch (std::runtime_error &) {
 				result = std::nullopt;
 			}
 			base->locals.pop_back();
@@ -90,7 +84,7 @@ struct Base {
 			return result;
 		}
 		// returns std::nullopt if invalid, or if must_succeed is true, rethrows an error
-		std::optional<FunctionValue> value(Base *base, std::span<type::Type> type_parameters, bool must_succeed = false) {
+		std::optional<FunctionValue> value(Base *base, std::span<type::Type> type_parameters, const bool must_succeed = false) {
 			LocalScope old_locals(ns);
 			// when generating the template, return
 			// back to namespace of definition
@@ -101,7 +95,8 @@ struct Base {
 				std::swap(base->locals, old_locals);
 			};
 			std::vector<type::Type> type_arguments{};
-			for (const auto &[index, argument] : std::views::enumerate(ast->type_arguments)) {
+			for (const auto &[sindex, argument] : std::views::enumerate(ast->type_arguments)) {
+				const size_t index = sindex;
 				std::optional<type::Type> type;
 				if (index < type_parameters.size())
 					type = type_parameters[index];
@@ -115,14 +110,7 @@ struct Base {
 						return std::nullopt;
 				type::Type argtype = std::move(*type);
 				base->locals.back().types.emplace(
-						argument.name,
-						[argument, argtype](std::span<type::Type> arguments) {
-							if (!arguments.empty())
-								throw std::runtime_error(fmt("Type arguments for type '",
-															 argument.name,
-															 "' are not allowed"));
-							return argtype;
-						});
+						argument.name, ConstantType{.name = argument.name, .type = argtype});
 				type_arguments.push_back(argtype);
 			}
 			std::optional<FunctionValue> result{};
@@ -130,8 +118,8 @@ struct Base {
 				std::vector<type::Type> args;
 				for (const auto &type : ast->parameters | std::views::values)
 					args.emplace_back(base->visit(&type));
-				type::Type return_type = base->visit(ast->return_type);
-				type::Function type{args, return_type};
+				const type::Type return_type = base->visit(ast->return_type);
+				const type::Function type{args, return_type};
 				result = base->generate_function_value(*this, type);
 			} catch (...) {
 				if (must_succeed) {
@@ -149,15 +137,62 @@ struct Base {
 		type::Function type;
 		FunctionValue value;
 	};
-	using TypeTemplate = std::function<type::Type(std::span<type::Type>)>;
+	struct ConstantType {
+		std::string_view name;
+		type::Type type;
+	};
+	type::Type get_type(const ConstantType &constant_type, const std::span<type::Type> arguments) {
+		if (!arguments.empty())
+			throw std::runtime_error(fmt("Type arguments for type '", constant_type.name, "' are not allowed"));
+		return constant_type.type;
+	}
+	struct GenericStruct {
+		Namespace *definition_ns;
+		const ast::top::Struct &ast;
+		naming::FullName name;
+	};
+	type::Type get_type(const GenericStruct &generic_struct, std::span<type::Type> arguments) {
+		LocalScope old_locals(generic_struct.definition_ns);
+		// when generating the template, return back to namespace of definition
+		std::swap(locals, old_locals);
+		locals.emplace_back();
+		std::vector<type::Type> type_arguments{};
+		for (const auto &[sindex, argument] : std::views::enumerate(generic_struct.ast.type_arguments)) {
+			const size_t index = sindex;
+			std::optional<type::Type> type;
+			if (index < arguments.size())
+				type = arguments[index];
+			else if (argument.default_type)
+				type = visit(*argument.default_type);
+			if (!type)
+				throw std::runtime_error(
+						fmt("Missing type argument for struct ", argument.name, ". ", generic_struct.ast.location));
+			type::Type argtype = std::move(*type);
+			locals.back().types.emplace(
+					argument.name,
+					ConstantType{.name = argument.name, .type = argtype});
+			type_arguments.push_back(argtype);
+		}
+		type::NamedStruct result{generic_struct.name, type_arguments, {}};
+		for (const auto &[name, type] : generic_struct.ast.members)
+			result.members.emplace_back(name, visit(&type));
+		locals.pop_back();
+		std::swap(locals, old_locals);
+		return result;
+	}
+	using TypeTemplate = utils::variant<ConstantType, GenericStruct>;
+	type::Type get_type(const TypeTemplate &type_template, std::span<type::Type> arguments) {
+		return type_template.visit([&](const auto &t) { return get_type(t, arguments); });
+	}
 	struct FunctionContainer {
 		bool can_contain_ambiguous = false;
-		FunctionContainer(bool can_contain_ambiguous = false) : can_contain_ambiguous{can_contain_ambiguous} {}
+		explicit FunctionContainer(const bool can_contain_ambiguous = false) : can_contain_ambiguous{can_contain_ambiguous} {}
 		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
 			if (auto it = functions.find(name); it != functions.end()) {
 				std::optional<GetFunctionResult> result{};
 				for (auto &func : it->second)
-					if (auto type = func.type(base, type_parameters); type && type->parameters == parameters)
+					if (auto type = func.type(base, type_parameters); type &&
+																	  std::ranges::equal(type->parameters, parameters))
 						if (auto value = func.value(base, type_parameters))
 							if (result)
 								throw std::runtime_error(fmt("Ambiguous function call for function '", name, "'; ", func.ast->location, " and ", result->tlf->ast->location, " both valid for this call"));
@@ -362,44 +397,19 @@ struct Base {
 			throw std::runtime_error(fmt("Struct '", name, "' already defined"));
 
 		auto res = ns_->types.emplace(
-				name.final, [=](std::span<type::Type> arguments) {
-					LocalScope old_locals(ns_);
-					// when generating the template, return back to namespace of definition
-					std::swap(locals, old_locals);
-					locals.emplace_back();
-					std::vector<type::Type> type_arguments{};
-					for (const auto &[index, argument] : std::views::enumerate(ast.type_arguments)) {
-						std::optional<type::Type> type;
-						if (index < arguments.size())
-							type = arguments[index];
-						else if (argument.default_type)
-							type = visit(*argument.default_type);
-						if (!type)
-							throw std::runtime_error(
-									fmt("Missing type argument for struct ", argument.name, ". ", ast.location));
-						type::Type argtype = std::move(*type);
-						locals.back().types.emplace(
-								argument.name,
-								[argument, argtype](std::span<type::Type> arguments) {
-									if (!arguments.empty())
-										throw std::runtime_error(fmt("Type arguments for type '",
-																	 argument.name,
-																	 "' are not allowed"));
-									return argtype;
-								});
-						type_arguments.push_back(argtype);
-					}
-					type::NamedStruct result{name, type_arguments, {}};
-					for (const auto &[name, type] : ast.members)
-						result.members.emplace_back(name, visit(&type));
-					locals.pop_back();
-					std::swap(locals, old_locals);
-					return result;
+				name.final,
+				GenericStruct{
+						.definition_ns = ns_,
+						.ast = ast,
+						.name = name,
 				});
 
 		if (ast.type_arguments.empty()) {
-			// if it's not templated, check if the struct works out pre-reference by calling it
-			res.first->second({});
+			// if it's not templated, check if the struct works out pre-reference by calling it,
+			// and re-assign it to a cached version.
+			res.first->second = ConstantType{
+					.name = name.final,
+					.type = get_type(res.first->second, {})};
 		}
 	}
 	type::Type visit(const ast::TypePtr &type) { return visit(type.get()); }
@@ -422,7 +432,7 @@ struct Base {
 		std::vector<type::Type> arguments;
 		for (const auto &param : named.arguments)
 			arguments.push_back(visit(&param));
-		return (*template_)(arguments);
+		return get_type(*template_, arguments);
 	}
 	type::Type visit(const ast::type::Pointer &pointer) {
 		auto type = visit(pointer.pointed);
