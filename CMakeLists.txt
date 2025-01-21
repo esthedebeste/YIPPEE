@@ -15,6 +15,7 @@ endfunction()
 
 add_library(libyippee)
 wall(libyippee)
+set_target_properties(libyippee PROPERTIES PREFIX "")
 target_sources(libyippee PRIVATE
         "src/cli/start.cxx"
         "src/parse/parser.cxx"
