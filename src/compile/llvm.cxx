@@ -825,7 +825,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 			auto value = deref(visit(&arg));
 			if (value.type != member.second)
 				throw std::runtime_error(fmt("Member type mismatch ", expr.location));
-			auto member_alloc = builder->CreateStructGEP(struct_, alloca, index);
+			auto member_alloc = builder->CreateStructGEP(struct_, alloca, static_cast<uint32_t>(index));
 			builder->CreateStore(value.value, member_alloc);
 		}
 		type.is_const = true;
@@ -885,7 +885,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 			if (value_.type != member_type)
 				throw std::runtime_error(fmt("Array member type mismatch ",
 											 expr.location));
-			auto member_ptr = builder->CreateStructGEP(llvm_array, alloca,index + 1);
+			auto member_ptr = builder->CreateStructGEP(llvm_array, alloca, static_cast<uint32_t>(index + 1));
 			builder->CreateStore(value_.value, member_ptr);
 		}
 		return Value{array_type, alloca};
@@ -907,7 +907,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 				auto unref_value_type = value.type;
 				unref_value_type.is_ref = false;
 				return Value{member_type,
-							 builder->CreateStructGEP(llvm_type(unref_value_type), value.value, index)};
+							 builder->CreateStructGEP(llvm_type(unref_value_type), value.value, static_cast<uint32_t>(index))};
 			}
 		}
 		throw std::runtime_error(fmt("Unknown member '", expr.name, "' in struct '",
