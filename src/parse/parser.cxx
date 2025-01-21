@@ -1024,7 +1024,6 @@ namespace parser {
 ast::Program parse_program(const std::string_view filename,
 						   const std::string_view content) {
 	Parser parser(filename, content);
-	return
-	parser.parse_program();
+	return parser.parse_program();
 }
 } // namespace parser
