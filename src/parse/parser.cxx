@@ -141,16 +141,10 @@ struct Parser : reader::Reader {
 		while (true) {
 			if (eof() || !is_id_continue(**this)) {
 				const std::string_view name{source.data() + start, index() - start};
-				if (name == "operator") {
-#define OPERATOR_LOOP(array)           \
-	for (std::string_view str : array) \
-		if (try_consume(str))          \
-			return str;
-					OPERATOR_LOOP(operators::binary_strings);
-					OPERATOR_LOOP(operators::comparison_strings);
-					OPERATOR_LOOP(operators::unary_strings);
-#undef OPERATOR_LOOP
-				}
+				if (name == "operator")
+					for (const std::string_view str : operators::all_strings)
+						if (try_consume(str))
+							return str;
 				return name;
 			}
 			consume();

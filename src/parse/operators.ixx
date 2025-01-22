@@ -66,13 +66,17 @@ inline std::string_view string(const comparison op) {
 std::ostream &operator<<(std::ostream &stream, const comparison op) {
 	return stream << string(op);
 }
+extern std::array<std::string_view, MAX_BINARY + MAX_UNARY + MAX_COMPARISON> all_strings;
 } // namespace operators
 
 module :private;
 namespace operators {
-std::array<std::string_view, 14> binary_strings{
+std::array<std::string_view, MAX_BINARY> binary_strings{
 		"=", "&&", "||", "&", "|", "^", "<<", ">>", "+", "-", "**", "*", "/", "%"};
-std::array<std::string_view, 4> unary_strings{"-", "+", "!", "~"};
-std::array<std::string_view, 6> comparison_strings{
+std::array<std::string_view, MAX_UNARY> unary_strings{"-", "+", "!", "~"};
+std::array<std::string_view, MAX_COMPARISON> comparison_strings{
 		"<=", ">=", "==", "!=", "<", ">"};
+std::array<std::string_view, MAX_BINARY + MAX_UNARY + MAX_COMPARISON> all_strings{
+		"&&", "||", "<<", ">>", "**", "<=", ">=", "==", "!=",
+		"=", "&", "|", "^", "+", "-", "*", "/", "%", "-", "+", "!", "~", "<", ">"};
 } // namespace operators
