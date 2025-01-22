@@ -365,7 +365,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		if (value.type.is_ref)
 			return value;
 		auto ref_type = value.type; // copy
-		ref_type.is_const = false;
+		ref_type.is_const = true;
 		ref_type.is_ref = true;
 		const auto alloca = builder->CreateAlloca(llvm_type(value.type), nullptr, "tmp");
 		builder->CreateStore(value.value, alloca);
@@ -497,13 +497,8 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		phi->addIncoming(right.value, right_bb);
 		return Value{type::boolean, phi};
 	}
-	Value visit(const ast::expr::Binop &expr) {
-		if (expr.op == operators::assign)
-			return assignment(expr);
-		if (expr.op == operators::l_and || expr.op == operators::l_or)
-			return logical(expr);
-		auto lvalue = visit(expr.left);
-		auto rvalue = visit(expr.right);
+
+	std::optional<Value> try_binop(const ast::expr::Binop &expr, const Value &lvalue, const Value &rvalue) {
 		for (auto &[op, gen] : binary_operations) {
 			if (op.op == expr.op && op.left == lvalue.type &&
 				op.right == rvalue.type) {
@@ -519,24 +514,22 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 					*function->type.return_type,
 					call};
 		}
+		return std::nullopt;
+	}
+	Value visit(const ast::expr::Binop &expr) {
+		if (expr.op == operators::assign)
+			return assignment(expr);
+		if (expr.op == operators::l_and || expr.op == operators::l_or)
+			return logical(expr);
+		auto lvalue = visit(expr.left);
+		auto rvalue = visit(expr.right);
+        if(auto value = try_binop(expr, lvalue, rvalue))
+            return *value;
 		lvalue = deref(lvalue);
 		rvalue = deref(rvalue);
-		for (auto &[op, gen] : binary_operations) {
-			if (op.op == expr.op && op.left == lvalue.type &&
-				op.right == rvalue.type) {
-				return gen(*this, lvalue, rvalue);
-			}
-		}
-		types = std::array{lvalue.type, rvalue.type};
-		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
-			auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-											function->value, std::array{lvalue.value, rvalue.value}, "tmp");
-			return Value{
-					*function->type.return_type,
-					call};
-		}
-		throw std::runtime_error(
-				fmt("No matching binary operation ", expr.location));
+		if(auto value = try_binop(expr, lvalue, rvalue))
+			return *value;
+		throw std::runtime_error(fmt("Couldn't find a corresponding operation (function) for ", expr.location, " :("));
 	}
 
 	template<const type::Type &left, const operators::comparison op, llvm::Value *(*Lambda)(LlvmVisitor &, llvm::Value *, llvm::Value *), const type::Type &right = left, const type::Type &result = left>
