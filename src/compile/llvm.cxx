@@ -227,11 +227,11 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		auto value = deref(visit(statement.expr));
 		const char *format_str;
 		if (value.type == type::t_int32)
-			format_str = "%d\n";
+			format_str = "\"%s\" => %d\n";
 		else if (value.type == type::t_double)
-			format_str = "%f\n";
+			format_str = "\"%s\" => %f\n";
 		else if (value.type == type::t_boolean)
-			format_str = "%d\n";
+			format_str = "\"%s\" => %d\n";
 		else
 			throw std::runtime_error(
 					fmt("Unknown type to printf ", statement.location));
@@ -242,7 +242,7 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 						llvm::PointerType::get(llvm::Type::getInt8Ty(llvm_context), 0),
 						true));
 		builder->CreateCall(
-				printf, {builder->CreateGlobalStringPtr(format_str), value.value}, "tmp");
+				printf, {builder->CreateGlobalStringPtr(format_str), builder->CreateGlobalStringPtr(statement.location.content), value.value}, "tmp");
 	}
 
 	Value variable_ref_value(const ast::stmt::Variable &statement) override {
