@@ -7,7 +7,7 @@ module;
 module ast;
 namespace ast {
 namespace expr {
-Array::Array(const Location &location, std::vector<ExprAst> values)
+Array::Array(const Range &location, std::vector<ExprAst> values)
 	: AstBase(location), values{std::move(values)} {}
 Array::Array(const Array &other) = default;
 Array::Array(Array &&other) noexcept = default;
@@ -20,7 +20,7 @@ void Array::children(children_cb cb) const {
 		cb(to_ast_base(&value));
 }
 void Array::summarize(std::ostream &os) const { os << "Array(" << values.size() << ")"; }
-Binop::Binop(const Location &location, ExprPtr left, const operators::binary op,
+Binop::Binop(const Range &location, ExprPtr left, const operators::binary op,
 			 ExprPtr right)
 	: AstBase(location), op{op}, left{std::move(left)},
 	  right{std::move(right)} {}
@@ -48,7 +48,7 @@ void Binop::summarize(std::ostream &os) const {
 	else
 		os << "Binop(" << op << ")";
 }
-Call::Call(const Location &location, ExprPtr callee, std::vector<ExprAst> arguments)
+Call::Call(const Range &location, ExprPtr callee, std::vector<ExprAst> arguments)
 	: AstBase(location), callee{std::move(callee)},
 	  arguments{std::move(arguments)} {}
 Call::Call(const Call &other)
@@ -70,7 +70,7 @@ void Call::children(children_cb cb) const {
 	}
 }
 void Call::summarize(std::ostream &os) const { os << "Call"; }
-Comparison::Comparison(const Location &location,
+Comparison::Comparison(const Range &location,
 					   std::vector<operators::comparison> ops,
 					   std::vector<ExprAst> operands)
 	: AstBase(location), ops{std::move(ops)}, operands{std::move(operands)} {}
@@ -93,7 +93,7 @@ void Comparison::summarize(std::ostream &os) const {
 	}
 	os << ")";
 }
-Conditional::Conditional(const Location &location, ExprPtr condition, ExprPtr thenExpr,
+Conditional::Conditional(const Range &location, ExprPtr condition, ExprPtr thenExpr,
 						 ExprPtr elseExpr)
 	: AstBase(location), condition{std::move(condition)},
 	  thenExpr{std::move(thenExpr)}, elseExpr{std::move(elseExpr)} {}
@@ -117,7 +117,7 @@ void Conditional::children(children_cb cb) const {
 	cb(to_ast_base(elseExpr.get()));
 }
 void Conditional::summarize(std::ostream &os) const { os << "Conditional"; }
-Create::Create(const Location &location, TypePtr type,
+Create::Create(const Range &location, TypePtr type,
 			   std::vector<std::pair<std::string, ExprAst>> args)
 	: AstBase(location), type(std::move(type)), args(std::move(args)) {}
 Create::Create(const Create &other)
@@ -137,7 +137,7 @@ void Create::children(children_cb cb) const {
 		cb(to_ast_base(&val));
 }
 void Create::summarize(std::ostream &os) const { os << "Create"; }
-Identifier::Identifier(const Location &location, ast::Identifier value, std::vector<TypeAst> type_arguments)
+Identifier::Identifier(const Range &location, ast::Identifier value, std::vector<TypeAst> type_arguments)
 	: AstBase(location), value{std::move(value)}, type_arguments{std::move(type_arguments)} {}
 Identifier::Identifier(const Identifier &other) = default;
 Identifier::Identifier(Identifier &&other) noexcept = default;
@@ -148,7 +148,7 @@ Identifier &Identifier::operator=(Identifier &&other) noexcept = default;
 void Identifier::summarize(std::ostream &os) const {
 	os << "Identifier(" << value << ")";
 }
-Member::Member(const Location &location, ExprPtr expr, std::string name)
+Member::Member(const Range &location, ExprPtr expr, std::string name)
 	: AstBase(location), expr{std::move(expr)}, name{std::move(name)} {}
 Member::Member(const Member &other)
 	: AstBase(other), expr{utils::clone(other.expr)}, name{other.name} {}
@@ -165,7 +165,7 @@ void Member::children(children_cb cb) const { cb(to_ast_base(expr.get())); }
 void Member::summarize(std::ostream &os) const {
 	os << "Member(" << name << ")";
 }
-MemberCall::MemberCall(const Location &location, ExprPtr callee, std::string name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments)
+MemberCall::MemberCall(const Range &location, ExprPtr callee, std::string name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments)
 	: AstBase(location), callee{std::move(callee)}, name{std::move(name)},
 	  type_arguments{std::move(type_arguments)}, arguments{std::move(arguments)} {}
 MemberCall::MemberCall(const MemberCall &other)
@@ -190,9 +190,9 @@ void MemberCall::children(children_cb cb) const {
 		cb(to_ast_base(&arg));
 }
 void MemberCall::summarize(std::ostream &os) const { os << "MemberCall(" << name << ")"; }
-Number::Number(const Location &location, uint_t integer)
+Number::Number(const Range &location, uint_t integer)
 	: AstBase(location), value{integer} {}
-Number::Number(const Location &location, float_t fp) : AstBase(location), value{fp} {}
+Number::Number(const Range &location, float_t fp) : AstBase(location), value{fp} {}
 Number::Number(const Number &other) = default;
 Number::Number(Number &&other) noexcept = default;
 Number &Number::operator=(const Number &other) = default;
@@ -202,7 +202,7 @@ void Number::summarize(std::ostream &os) const {
 	value.visit([&](auto &&v) { os << v; });
 	os << ")";
 }
-Subscript::Subscript(const Location &location, ExprPtr expr, ExprPtr index)
+Subscript::Subscript(const Range &location, ExprPtr expr, ExprPtr index)
 	: AstBase(location), expr{std::move(expr)}, index{std::move(index)} {}
 Subscript::Subscript(const Subscript &other)
 	: AstBase(other), expr{clone(other.expr)},
@@ -222,7 +222,7 @@ void Subscript::children(children_cb cb) const {
 	cb(to_ast_base(index.get()));
 }
 void Subscript::summarize(std::ostream &os) const { os << "Subscript"; }
-Unary::Unary(const Location &location, const operators::unary op, ExprPtr expr)
+Unary::Unary(const Range &location, const operators::unary op, ExprPtr expr)
 	: AstBase(location), op{op}, expr{std::move(expr)} {}
 Unary::Unary(const Unary &other)
 	: AstBase(other), op{other.op}, expr{clone(other.expr)} {}
@@ -238,14 +238,14 @@ Unary &Unary::operator=(Unary &&other) noexcept = default;
 void Unary::children(children_cb cb) const { cb(to_ast_base(expr.get())); }
 void Unary::summarize(std::ostream &os) const { os << "Unary(" << op << ")"; }
 } // namespace expr
-Name::Name(const Location &location, std::string str)
+Name::Name(const Range &location, std::string str)
 	: AstBase{location}, str{std::move(str)} {}
 std::ostream &operator<<(std::ostream &stream, const Name &name) {
 	return stream << name.str;
 }
 void Name::summarize(std::ostream &os) const { os << "Name(" << *this << ")"; }
 
-Identifier::Identifier(const Location &location, std::vector<Name> parts, Name final)
+Identifier::Identifier(const Range &location, std::vector<Name> parts, Name final)
 	: AstBase{location}, parts{std::move(parts)}, final{std::move(final)} {}
 std::ostream &operator<<(std::ostream &stream, const Identifier &name) {
 	for (const auto &part : name.parts)
@@ -256,7 +256,7 @@ std::ostream &operator<<(std::ostream &stream, const Identifier &name) {
 void Identifier::summarize(std::ostream &os) const {
 	os << "Identifier(" << *this << ")";
 }
-TypeArgument::TypeArgument(const Location &location, std::string name, std::optional<TypePtr> default_type)
+TypeArgument::TypeArgument(const Range &location, std::string name, std::optional<TypePtr> default_type)
 	: AstBase(location), name(std::move(name)), default_type(std::move(default_type)) {}
 TypeArgument::TypeArgument(const TypeArgument &other) : AstBase(other), name(other.name), default_type(clone(other.default_type)) {}
 TypeArgument::TypeArgument(TypeArgument &&other) noexcept = default;
@@ -275,7 +275,7 @@ void TypeArgument::children(children_cb cb) const {
 		cb(to_ast_base(default_type->get()));
 }
 namespace stmt {
-Block::Block(const Location &location, std::vector<StatementAst> statements)
+Block::Block(const Range &location, std::vector<StatementAst> statements)
 	: AstBase(location), statements(std::move(statements)) {}
 Block::Block(const Block &other) = default;
 Block::Block(Block &&other) noexcept = default;
@@ -288,7 +288,7 @@ void Block::children(children_cb cb) const {
 }
 void Block::summarize(std::ostream &os) const { os << "Block"; }
 
-Expr::Expr(const Location &location, ExprPtr expr)
+Expr::Expr(const Range &location, ExprPtr expr)
 	: AstBase(location), expr{std::move(expr)} {}
 Expr::Expr(const Expr &other)
 	: AstBase(other), expr{clone(other.expr)} {}
@@ -302,7 +302,7 @@ Expr &Expr::operator=(const Expr &other) {
 Expr &Expr::operator=(Expr &&other) noexcept = default;
 void Expr::children(children_cb cb) const { cb(to_ast_base(expr.get())); }
 void Expr::summarize(std::ostream &os) const { os << "ExprStatement"; }
-For::For(const Location &location, std::optional<StatementPtr> init,
+For::For(const Range &location, std::optional<StatementPtr> init,
 		 std::optional<ExprPtr> cond, std::optional<ExprPtr> incr,
 		 StatementPtr body)
 	: AstBase(location), init{std::move(init)}, cond{std::move(cond)},
@@ -331,7 +331,7 @@ void For::children(children_cb cb) const {
 	cb(to_ast_base(body.get()));
 }
 void For::summarize(std::ostream &os) const { os << "ForStatement"; }
-If::If(const Location &location, ExprPtr condition, StatementPtr then,
+If::If(const Range &location, ExprPtr condition, StatementPtr then,
 	   std::optional<StatementPtr> otherwise)
 	: AstBase(location), condition{std::move(condition)}, then{std::move(then)},
 	  otherwise{std::move(otherwise)} {}
@@ -355,7 +355,7 @@ void If::children(children_cb cb) const {
 		cb(to_ast_base(otherwise->get()));
 }
 void If::summarize(std::ostream &os) const { os << "IfStatement"; }
-Return::Return(const Location &location, ExprPtr expr)
+Return::Return(const Range &location, ExprPtr expr)
 	: AstBase(location), expr{std::move(expr)} {}
 Return::Return(const Return &other)
 	: AstBase(other), expr{clone(other.expr)} {}
@@ -370,7 +370,7 @@ Return &Return::operator=(const Return &other) {
 Return &Return::operator=(Return &&other) noexcept = default;
 void Return::children(children_cb cb) const { cb(to_ast_base(expr.get())); }
 void Return::summarize(std::ostream &os) const { os << "Return"; }
-Variable::Variable(const Location &location, std::string name,
+Variable::Variable(const Range &location, std::string name,
 				   std::optional<TypePtr> type, ExprPtr expr)
 	: AstBase(location), name{std::move(name)}, type{std::move(type)},
 	  expr{std::move(expr)} {}
@@ -396,7 +396,7 @@ void Variable::children(children_cb cb) const {
 		cb(to_ast_base(type->get()));
 	cb(to_ast_base(expr.get()));
 }
-While::While(const Location &location, ExprPtr expr, StatementPtr then)
+While::While(const Range &location, ExprPtr expr, StatementPtr then)
 	: AstBase(location), expr{std::move(expr)}, body{std::move(then)} {}
 While::While(const While &other)
 	: AstBase(other), expr{clone(other.expr)}, body{clone(other.body)} {}
@@ -416,7 +416,7 @@ void While::children(children_cb cb) const {
 void While::summarize(std::ostream &os) const { os << "WhileStatement"; }
 }
 namespace top {
-Function::Function(const Location &location, Identifier name,
+Function::Function(const Range &location, Identifier name,
 				   std::vector<TypeArgument> type_arguments,
 				   std::vector<Parameter> parameters, TypePtr return_type,
 				   StatementPtr statement)
@@ -451,7 +451,7 @@ void Function::children(children_cb cb) const {
 void Function::summarize(std::ostream &os) const {
 	os << "Function(" << name << ')';
 }
-Namespace::Namespace(const Location &location, const Identifier &name,
+Namespace::Namespace(const Range &location, const Identifier &name,
 					 const std::vector<TopLevelAst> &tops)
 	: AstBase(location), name{name}, tops(tops) {}
 Namespace::Namespace(const Namespace &other) = default;
@@ -466,7 +466,7 @@ void Namespace::children(children_cb cb) const {
 void Namespace::summarize(std::ostream &os) const {
 	os << "Namespace(" << name << ')';
 }
-Struct::Struct(const Location &location, Identifier name,
+Struct::Struct(const Range &location, Identifier name,
 			   std::vector<TypeArgument> type_arguments,
 			   std::vector<Field> members)
 	: AstBase(location), name{std::move(name)},
@@ -498,7 +498,7 @@ void Struct::summarize(std::ostream &os) const {
 }
 } // namespace top
 namespace type {
-Array::Array(const Location &location, TypePtr member, const std::uintmax_t size)
+Array::Array(const Range &location, TypePtr member, const std::uintmax_t size)
 	: AstBase(location), member{std::move(member)}, size{size} {}
 Array::Array(const Array &other)
 	: AstBase(other), member{clone(other.member)}, size{other.size} {}
@@ -513,7 +513,7 @@ Array &Array::operator=(Array &&other) noexcept = default;
 Array::~Array() {}
 void Array::children(children_cb cb) const { cb(to_ast_base(member.get())); }
 void Array::summarize(std::ostream &os) const { os << "Array(" << size << ")"; }
-Named::Named(const Location &location, Identifier name, std::vector<TypeAst> arguments)
+Named::Named(const Range &location, Identifier name, std::vector<TypeAst> arguments)
 	: AstBase(location), name{std::move(name)},
 	  arguments{std::move(arguments)} {}
 Named::Named(const Named &named) = default;
@@ -524,7 +524,7 @@ Named &Named::operator=(Named &&) noexcept = default;
 void Named::summarize(std::ostream &os) const {
 	os << "NamedType(" << name << ')';
 }
-Pointer::Pointer(const Location &location, TypePtr pointed)
+Pointer::Pointer(const Range &location, TypePtr pointed)
 	: AstBase(location), pointed{std::move(pointed)} {}
 Pointer::Pointer(const Pointer &other)
 	: AstBase(other), pointed{clone(other.pointed)} {}
@@ -538,7 +538,7 @@ Pointer &Pointer::operator=(Pointer &&other) noexcept = default;
 Pointer::~Pointer() {}
 void Pointer::children(children_cb cb) const { cb(to_ast_base(pointed.get())); }
 void Pointer::summarize(std::ostream &os) const { os << "Pointer"; }
-Primitive::Primitive(const Location &location, const ::type::Primitive prim)
+Primitive::Primitive(const Range &location, const ::type::Primitive prim)
 	: AstBase(location), prim{prim} {}
 Primitive::Primitive(const Primitive &other) = default;
 Primitive::Primitive(Primitive &&other) noexcept = default;
@@ -548,7 +548,7 @@ void Primitive::summarize(std::ostream &os) const {
 	os << "Primitive(" << prim.name() << ')';
 }
 } // namespace type
-Program::Program(const Location &location, std::vector<TopLevelAst> tops)
+Program::Program(const Range &location, std::vector<TopLevelAst> tops)
 	: AstBase(location), tops{std::move(tops)} {}
 Program::~Program() {}
 void Program::children(children_cb cb) const {

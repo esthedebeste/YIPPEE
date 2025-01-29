@@ -14,7 +14,7 @@ namespace {
 void child_graph(const ast::AstBase *parent, std::ostream &stream) {
 	stream << "  \"" << parent << "\" [label=\"";
 	parent->summarize(stream);
-	stream << " (" << parent->location.line << ":" << parent->location.column << ")";
+	stream << " " << parent->location;
 	stream << "\"]\n";
 	std::function<void(const ast::AstBase *)> callback{[&](const ast::AstBase *child) {
 		stream << "  \"" << parent << "\" -> \"" << child << "\"\n";

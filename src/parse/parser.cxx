@@ -79,7 +79,11 @@ struct Parser : reader::Reader {
 		return std::nullopt;
 	}
 	[[nodiscard]] ast::Location get_loc() const {
-		return ast::Location(filename, line, column);
+		return ast::Location(filename, line, column, index());
+	}
+	[[nodiscard]] ast::Range get_range(ast::Location start) const {
+		ast::Location end = get_loc();
+		return ast::Range(start, end, source.substr(start.index, end.index - start.index));
 	}
 
 	void error(auto &&...args) {
@@ -169,15 +173,15 @@ struct Parser : reader::Reader {
 	}
 
 	std::optional<ast::Name> parse_name() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
-		return std::make_optional(ast::Name(location, std::string(name)));
+		return std::make_optional(ast::Name(get_range(loc_start), std::string(name)));
 	}
 
 	std::optional<ast::Identifier> parse_identifier() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		std::vector<ast::Name> names;
 		while (true) {
 			auto name = parse_name();
@@ -185,7 +189,7 @@ struct Parser : reader::Reader {
 				return std::nullopt; // :: not followed by a name
 			if (!try_consume("::"))
 				return std::make_optional(
-						ast::Identifier(location, std::move(names), *name));
+						ast::Identifier(get_range(loc_start), std::move(names), *name));
 			names.push_back(std::move(*name));
 		}
 	}
@@ -193,12 +197,12 @@ struct Parser : reader::Reader {
 	// types
 
 	ast::type::Pointer parse_pointer_type(ast::TypeAst type) {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		ws();
-		return ast::type::Pointer(location, std::make_unique<ast::TypeAst>(type));
+		return ast::type::Pointer(get_range(loc_start), std::make_unique<ast::TypeAst>(type));
 	}
 	ast::type::Array parse_array_type(ast::TypeAst type) {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		ws();
 		auto size = parse_literal_expr();
 		if (!size)
@@ -208,21 +212,21 @@ struct Parser : reader::Reader {
 		ws();
 		expect("]");
 		ws();
-		return ast::type::Array(location, std::make_unique<ast::TypeAst>(type),
+		return ast::type::Array(get_range(loc_start), std::make_unique<ast::TypeAst>(type),
 								size->value.get<ast::expr::Number::uint_t>());
 	}
 	std::optional<ast::type::Primitive> parse_primitive_type() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
 		const auto it = primitive_types.find(name);
 		if (it == primitive_types.end())
 			return std::nullopt;
-		return std::make_optional(ast::type::Primitive(location, type::Primitive(it->second)));
+		return std::make_optional(ast::type::Primitive(get_range(loc_start), type::Primitive(it->second)));
 	}
 	std::optional<ast::type::Named> parse_named_type() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		const auto id = parse_identifier();
 		if (!id)
 			return std::nullopt;
@@ -241,7 +245,7 @@ struct Parser : reader::Reader {
 			expect(">");
 		}
 		return std::make_optional(
-				ast::type::Named(location, *id, std::move(parameters)));
+				ast::type::Named(get_range(loc_start), *id, std::move(parameters)));
 	}
 	std::optional<ast::TypeAst> parse_type() {
 		auto subject = try_<ast::TypeAst>(&Parser::parse_primitive_type,
@@ -276,7 +280,7 @@ struct Parser : reader::Reader {
 		return std::nullopt;
 	}
 	std::optional<ast::expr::Unary> parse_unary() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		auto op = parse_unary_op();
 		if (!op)
 			return std::nullopt;
@@ -284,11 +288,11 @@ struct Parser : reader::Reader {
 		if (!expr)
 			error("Expected expression after ", *op);
 		return std::make_optional(
-				ast::expr::Unary(location, *op, std::make_unique<ast::ExprAst>(*expr)));
+				ast::expr::Unary(get_range(loc_start), *op, std::make_unique<ast::ExprAst>(*expr)));
 	}
 
 	std::optional<ast::expr::Number> parse_literal_expr() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		const std::size_t start = index();
 		if (!std::isdigit(**this))
 			return std::nullopt;
@@ -329,7 +333,7 @@ struct Parser : reader::Reader {
 				error("Invalid float number");
 			if (result.ec == std::errc::result_out_of_range)
 				error("Float number out of range (compiler limitation at float", sizeof(value) * 8, ")");
-			return std::make_optional(ast::expr::Number(location, value));
+			return std::make_optional(ast::expr::Number(get_range(loc_start), value));
 		} else {
 			ast::expr::Number::uint_t value;
 			auto result = std::from_chars(number.data(), number.data() + number.size(), value);
@@ -337,11 +341,11 @@ struct Parser : reader::Reader {
 				error("Invalid integer number");
 			if (result.ec == std::errc::result_out_of_range)
 				error("Integer number out of range (compiler limitation at uint", sizeof(value) * 8, ")");
-			return std::make_optional(ast::expr::Number(location, value));
+			return std::make_optional(ast::expr::Number(get_range(loc_start), value));
 		}
 	}
 	std::optional<ast::ExprAst> parse_bracketed_expr() {
-		auto location = get_loc();
+		auto loc_start = get_loc();
 		if (!try_consume("("))
 			return std::nullopt;
 		ws();
@@ -354,7 +358,7 @@ struct Parser : reader::Reader {
 	}
 
 	std::optional<ast::expr::Create> parse_create_expr() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!try_consume("create"))
 			return std::nullopt;
 		ws();
@@ -384,23 +388,23 @@ struct Parser : reader::Reader {
 		}
 		ws();
 		return std::make_optional(ast::expr::Create(
-				location, std::make_unique<ast::TypeAst>(*type), std::move(arguments)));
+				get_range(loc_start), std::make_unique<ast::TypeAst>(*type), std::move(arguments)));
 	}
 	std::optional<ast::expr::Identifier> parse_identifier_expr() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		auto id = parse_identifier();
 		if (!id)
 			return std::nullopt;
 		const auto type_arguments = parse_type_arguments();
-		return std::make_optional(ast::expr::Identifier(location, std::move(*id), type_arguments));
+		return std::make_optional(ast::expr::Identifier(get_range(loc_start), std::move(*id), type_arguments));
 	}
 	std::optional<ast::expr::Array> parse_array_expr() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!try_consume("["))
 			return std::nullopt;
 		ws();
 		std::vector<ast::ExprAst> values = parse_exprs(std::nullopt, "]", ",");
-		return std::make_optional(ast::expr::Array(location, std::move(values)));
+		return std::make_optional(ast::expr::Array(get_range(loc_start), std::move(values)));
 	}
 
 	std::optional<ast::ExprAst> parse_postfixed() {
@@ -438,41 +442,41 @@ struct Parser : reader::Reader {
 	}
 
 	ast::expr::Call parse_call(ast::ExprAst subject) {
-		auto location = get_loc();
+		auto loc_start = get_loc();
 		auto arguments = parse_exprs(std::nullopt /* start char already parsed by parse_postfix_expr */, ")");
-		return {location, std::make_unique<ast::ExprAst>(std::move(subject)),
+		return {get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
 				std::move(arguments)};
 	}
 
 	ast::expr::Subscript parse_subscript(ast::ExprAst subject) {
-		auto location = get_loc();
+		auto loc_start = get_loc();
 		auto index = parse_expr();
 		if (!index)
 			error("Expected index expression");
 		ws();
 		expect("]");
-		return {location, std::make_unique<ast::ExprAst>(std::move(subject)),
+		return {get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
 				std::make_unique<ast::ExprAst>(std::move(*index))};
 	}
 
 	ast::ExprAst parse_member(ast::ExprAst subject) {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		const auto name = parse_name_str();
 		if (name.empty())
 			error("Expected member name");
 		const bool template_args = **this == '<';
 		ws();
 		if (!template_args && **this != '(')
-			return {ast::expr::Member{location, std::make_unique<ast::ExprAst>(std::move(subject)),
+			return {ast::expr::Member{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
 									  std::string(name)}};
 		std::vector<ast::TypeAst> type_arguments = parse_type_arguments();
 		std::vector<ast::ExprAst> arguments = parse_exprs("(", ")");
-		return {ast::expr::MemberCall{location, std::make_unique<ast::ExprAst>(std::move(subject)), std::string(name),
+		return {ast::expr::MemberCall{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)), std::string(name),
 									  std::move(type_arguments), std::move(arguments)}};
 	}
 
 	std::optional<ast::ExprAst> parse_postfix_expr() {
-		auto location = get_loc();
+		auto loc_start = get_loc();
 		auto o_subject = parse_postfixed();
 		if (!o_subject)
 			return std::nullopt;
@@ -529,7 +533,7 @@ struct Parser : reader::Reader {
 
 	std::optional<ast::ExprAst> parse_binop(auto operator_matcher,
 											parser_t<ast::ExprAst> children) {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		auto lhs = std::invoke(children, this);
 		if (!lhs)
 			return std::nullopt;
@@ -546,7 +550,7 @@ struct Parser : reader::Reader {
 			if (!rhs)
 				error("Expected expression after ", *op);
 			lhs = std::make_optional(ast::ExprAst(ast::expr::Binop(
-					location, std::make_unique<ast::ExprAst>(std::move(*lhs)), *op,
+					get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(*lhs)), *op,
 					std::make_unique<ast::ExprAst>(std::move(*rhs)))));
 		}
 	}
@@ -599,7 +603,7 @@ struct Parser : reader::Reader {
 		return std::nullopt;
 	}
 	std::optional<ast::ExprAst> parse_comparison() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		auto first = parse_bitwise_or();
 		if (!first)
 			return std::nullopt;
@@ -628,7 +632,7 @@ struct Parser : reader::Reader {
 		if (exprs.size() == 1)
 			return std::make_optional(std::move(exprs[0]));
 		return std::make_optional(ast::ExprAst(ast::expr::Comparison(
-				location, std::move(comparisons), std::move(exprs))));
+				get_range(loc_start), std::move(comparisons), std::move(exprs))));
 	}
 	std::optional<ast::ExprAst> parse_logical_and() {
 		return parse_binop(opmatch_oneof<1>({operators::binary::l_and}),
@@ -639,7 +643,7 @@ struct Parser : reader::Reader {
 						   &Parser::parse_logical_and);
 	}
 	std::optional<ast::ExprAst> parse_conditional() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		auto condition = parse_logical_or();
 		if (!condition)
 			return std::nullopt;
@@ -657,7 +661,7 @@ struct Parser : reader::Reader {
 		if (!false_)
 			error("Expected false-expr for conditional");
 		return std::make_optional(ast::ExprAst(ast::expr::Conditional(
-				location, std::make_unique<ast::ExprAst>(std::move(*condition)),
+				get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(*condition)),
 				std::make_unique<ast::ExprAst>(std::move(*true_)),
 				std::make_unique<ast::ExprAst>(std::move(*false_)))));
 	}
@@ -683,7 +687,7 @@ struct Parser : reader::Reader {
 	// statements
 
 	std::optional<ast::stmt::Block> parse_block() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!try_consume("{"))
 			return std::nullopt;
 		ws();
@@ -696,10 +700,10 @@ struct Parser : reader::Reader {
 		}
 		expect("}");
 		return std::make_optional(
-				ast::stmt::Block(location, std::move(statements)));
+				ast::stmt::Block(get_range(loc_start), std::move(statements)));
 	}
 	std::optional<ast::stmt::Variable> parse_variable_declaration() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
@@ -722,16 +726,15 @@ struct Parser : reader::Reader {
 		ws();
 		if (!try_consume(";"))
 			error("Expected ; after variable declaration");
-		ws();
 		return std::make_optional(ast::stmt::Variable(
-				location, std::string(name),
+				get_range(loc_start), std::string(name),
 				type ? std::make_optional(
 							   std::make_unique<ast::TypeAst>(std::move(*type)))
 					 : std::nullopt,
 				std::make_unique<ast::ExprAst>(std::move(*expr))));
 	}
 	std::optional<ast::stmt::If> parse_if() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!keyword("if"))
 			return std::nullopt;
 		ws();
@@ -751,14 +754,14 @@ struct Parser : reader::Reader {
 			otherwise = std::make_optional(std::move(*else_));
 		}
 		return std::make_optional(ast::stmt::If(
-				location, std::make_unique<ast::ExprAst>(std::move(*expr)),
+				get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(*expr)),
 				std::make_unique<ast::StatementAst>(std::move(*then)),
 				otherwise ? std::make_optional(std::make_unique<ast::StatementAst>(
 									std::move(*otherwise)))
 						  : std::nullopt));
 	}
 	std::optional<ast::stmt::While> parse_while() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!keyword("while"))
 			return std::nullopt;
 		ws();
@@ -769,11 +772,11 @@ struct Parser : reader::Reader {
 		if (!body)
 			error("Expected statement after while");
 		return std::make_optional(ast::stmt::While(
-				location, std::make_unique<ast::ExprAst>(std::move(*expr)),
+				get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(*expr)),
 				std::make_unique<ast::StatementAst>(std::move(*body))));
 	}
 	std::optional<ast::stmt::For> parse_for() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!keyword("for"))
 			return std::nullopt;
 		ws();
@@ -788,7 +791,7 @@ struct Parser : reader::Reader {
 		if (!body)
 			error("Expected statement after for");
 		return std::make_optional(ast::stmt::For(
-				location,
+				get_range(loc_start),
 				init ? std::make_optional(
 							   std::make_unique<ast::StatementAst>(std::move(*init)))
 					 : std::nullopt,
@@ -801,7 +804,7 @@ struct Parser : reader::Reader {
 				std::make_unique<ast::StatementAst>(std::move(*body))));
 	}
 	std::optional<ast::stmt::Return> parse_return() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!keyword("return"))
 			return std::nullopt;
 		ws();
@@ -811,22 +814,20 @@ struct Parser : reader::Reader {
 		ws();
 		if (!try_consume(";"))
 			error("Expected ; after return");
-		ws();
 		return std::make_optional(ast::stmt::Return(
-				location, std::make_unique<ast::ExprAst>(std::move(*expr))));
+				get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(*expr))));
 	}
 
 	std::optional<ast::stmt::Expr> parse_expr_statement() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		auto expr = parse_expr();
 		if (!expr)
 			return std::nullopt;
 		ws();
 		if (!try_consume(";"))
 			error("Expected ; after expression statement");
-		ws();
 		return std::make_optional(ast::stmt::Expr(
-				location, std::make_unique<ast::ExprAst>(std::move(*expr))));
+				get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(*expr))));
 	}
 
 	std::optional<ast::StatementAst> parse_statement() {
@@ -844,7 +845,7 @@ struct Parser : reader::Reader {
 		std::vector<ast::TypeArgument> type_arguments{};
 		if (try_consume("<")) {
 			while (true) {
-				auto location = get_loc();
+				auto loc_start = get_loc();
 				std::string name{parse_name_str()};
 				if (name.empty()) {
 					ws();
@@ -857,9 +858,9 @@ struct Parser : reader::Reader {
 					auto type = parse_type();
 					if (!type)
 						error("Expected type after =");
-					type_arguments.emplace_back(location, name, std::make_unique<ast::TypeAst>(*type));
+					type_arguments.emplace_back(get_range(loc_start), name, std::make_unique<ast::TypeAst>(*type));
 				} else {
-					type_arguments.emplace_back(location, name, std::nullopt);
+					type_arguments.emplace_back(get_range(loc_start), name, std::nullopt);
 				}
 				try_consume(","); // optional trailing comma
 				ws();
@@ -892,7 +893,7 @@ struct Parser : reader::Reader {
 	// toplevels
 
 	std::optional<ast::top::Namespace> parse_namespace() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!keyword("namespace"))
 			return std::nullopt;
 		must_ws();
@@ -914,10 +915,10 @@ struct Parser : reader::Reader {
 		expect("}");
 		ws();
 		return std::make_optional(ast::top::Namespace(
-				location, std::move(*identifier), std::move(top_level_asts)));
+				get_range(loc_start), std::move(*identifier), std::move(top_level_asts)));
 	}
 	std::optional<ast::top::Function> parse_function() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!keyword("fun"))
 			return std::nullopt;
 		must_ws();
@@ -956,12 +957,12 @@ struct Parser : reader::Reader {
 		if (!body)
 			error("Expected function body block");
 		return std::make_optional(ast::top::Function(
-				location, std::move(*identifier), std::move(type_arguments), std::move(parameters),
+				get_range(loc_start), std::move(*identifier), std::move(type_arguments), std::move(parameters),
 				std::make_unique<ast::TypeAst>(std::move(*return_type)),
 				std::make_unique<ast::StatementAst>(std::move(*body))));
 	}
 	std::optional<ast::top::Struct> parse_struct() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		if (!keyword("struct"))
 			return std::nullopt;
 		must_ws();
@@ -988,7 +989,7 @@ struct Parser : reader::Reader {
 				break;
 		}
 		ws();
-		return std::make_optional(ast::top::Struct(location, std::move(*identifier),
+		return std::make_optional(ast::top::Struct(get_range(loc_start), std::move(*identifier),
 												   std::move(type_arguments),
 												   std::move(fields)));
 	}
@@ -1002,7 +1003,7 @@ struct Parser : reader::Reader {
 	// program
 
 	ast::Program parse_program() {
-		const auto location = get_loc();
+		const auto loc_start = get_loc();
 		std::vector<ast::TopLevelAst> top_level_asts;
 		while (true) {
 			ws();
@@ -1014,7 +1015,7 @@ struct Parser : reader::Reader {
 		}
 		if (!eof())
 			error("Expected EOF");
-		return ast::Program(location, std::move(top_level_asts));
+		return ast::Program(get_range(loc_start), std::move(top_level_asts));
 	}
 };
 } // namespace
