@@ -4,6 +4,7 @@ module;
 #include <utility>
 #include <vector>
 #include <string>
+#include <array>
 export module type;
 
 import utils;
@@ -160,8 +161,8 @@ export struct Primitive final {
 	}
 	[[nodiscard]] std::string mangle() const;
 };
-using type_variant = utils::variant<type::Array, type::Function, type::NamedStruct,
-									type::Pointer, type::Primitive>;
+using type_variant = utils::variant<Array, Function, NamedStruct,
+									Pointer, Primitive>;
 export struct Type : type_variant {
 	using base = type_variant;
 	bool is_const{}, is_ref{};
@@ -191,32 +192,37 @@ export struct Type : type_variant {
 	}
 	[[nodiscard]] std::string mangle() const;
 };
-export extern const Primitive boolean;
-export extern const Primitive uint8;
-export extern const Primitive int8;
-export extern const Primitive uint16;
-export extern const Primitive int16;
-export extern const Primitive uint32;
-export extern const Primitive int32;
-export extern const Primitive uint64;
-export extern const Primitive int64;
-export extern const Primitive uint128;
-export extern const Primitive int128;
-export extern const Primitive half;
-export extern const Primitive float_;
-export extern const Primitive double_;
-export extern const Type t_boolean;
-export extern const Type t_uint8;
-export extern const Type t_int8;
-export extern const Type t_uint16;
-export extern const Type t_int16;
-export extern const Type t_uint32;
-export extern const Type t_int32;
-export extern const Type t_uint64;
-export extern const Type t_int64;
-export extern const Type t_uint128;
-export extern const Type t_int128;
-export extern const Type t_half;
-export extern const Type t_float;
-export extern const Type t_double;
+export inline constexpr Primitive boolean{Primitive::p_type::boolean};
+export inline constexpr Primitive uint8{Primitive::p_type::uint8};
+export inline constexpr Primitive int8{Primitive::p_type::int8};
+export inline constexpr Primitive uint16{Primitive::p_type::uint16};
+export inline constexpr Primitive int16{Primitive::p_type::int16};
+export inline constexpr Primitive uint32{Primitive::p_type::uint32};
+export inline constexpr Primitive int32{Primitive::p_type::int32};
+export inline constexpr Primitive uint64{Primitive::p_type::uint64};
+export inline constexpr Primitive int64{Primitive::p_type::int64};
+export inline constexpr Primitive uint128{Primitive::p_type::uint128};
+export inline constexpr Primitive int128{Primitive::p_type::int128};
+export inline constexpr Primitive half{Primitive::p_type::half};
+export inline constexpr Primitive float_{Primitive::p_type::float_};
+export inline constexpr Primitive double_{Primitive::p_type::double_};
+export inline constexpr Type t_boolean{Primitive{Primitive::boolean}};
+export inline constexpr Type t_uint8{Primitive{Primitive::uint8}};
+export inline constexpr Type t_int8{Primitive{Primitive::int8}};
+export inline constexpr Type t_uint16{Primitive{Primitive::uint16}};
+export inline constexpr Type t_int16{Primitive{Primitive::int16}};
+export inline constexpr Type t_uint32{Primitive{Primitive::uint32}};
+export inline constexpr Type t_int32{Primitive{Primitive::int32}};
+export inline constexpr Type t_uint64{Primitive{Primitive::uint64}};
+export inline constexpr Type t_int64{Primitive{Primitive::int64}};
+export inline constexpr Type t_uint128{Primitive{Primitive::uint128}};
+export inline constexpr Type t_int128{Primitive{Primitive::int128}};
+export inline constexpr Type t_half{Primitive{Primitive::half}};
+export inline constexpr Type t_float{Primitive{Primitive::float_}};
+export inline constexpr Type t_double{Primitive{Primitive::double_}};
+export inline constexpr std::array unsigneds{t_uint8, t_uint16, t_uint32, t_uint64, t_uint128};
+export inline constexpr std::array signeds{t_int8, t_int16, t_int32, t_int64, t_int128};
+export inline constexpr std::array integers{t_uint8, t_int8, t_uint16, t_int16, t_uint32, t_int32, t_uint64, t_int64, t_uint128, t_int128};
+export inline constexpr std::array floats{t_half, t_float, t_double};
+export inline constexpr std::array numeric{t_uint8, t_int8, t_uint16, t_int16, t_uint32, t_int32, t_uint64, t_int64, t_uint128, t_int128, t_half, t_float, t_double};
 } // namespace type

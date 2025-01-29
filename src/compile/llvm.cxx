@@ -17,7 +17,6 @@ module;
 #include <optional>
 #include <ranges>
 #include <span>
-#include <sstream>
 #include <string>
 #include <string_view>
 module backend.llvm;
@@ -30,29 +29,7 @@ import naming;
 import backend.base;
 
 namespace {
-namespace constexpr_primitives {
-constexpr type::Type t_boolean{type::Primitive{type::Primitive::boolean}};
-constexpr type::Type t_uint8{type::Primitive{type::Primitive::uint8}};
-constexpr type::Type t_int8{type::Primitive{type::Primitive::int8}};
-constexpr type::Type t_uint16{type::Primitive{type::Primitive::uint16}};
-constexpr type::Type t_int16{type::Primitive{type::Primitive::int16}};
-constexpr type::Type t_uint32{type::Primitive{type::Primitive::uint32}};
-constexpr type::Type t_int32{type::Primitive{type::Primitive::int32}};
-constexpr type::Type t_uint64{type::Primitive{type::Primitive::uint64}};
-constexpr type::Type t_int64{type::Primitive{type::Primitive::int64}};
-constexpr type::Type t_uint128{type::Primitive{type::Primitive::uint128}};
-constexpr type::Type t_int128{type::Primitive{type::Primitive::int128}};
-constexpr type::Type t_half{type::Primitive{type::Primitive::half}};
-constexpr type::Type t_float{type::Primitive{type::Primitive::float_}};
-constexpr type::Type t_double{type::Primitive{type::Primitive::double_}};
-
-constexpr std::array unsigneds{t_uint8, t_uint16, t_uint32, t_uint64, t_uint128};
-constexpr std::array signeds{t_int8, t_int16, t_int32, t_int64, t_int128};
-constexpr std::array integers{t_uint8, t_int8, t_uint16, t_int16, t_uint32, t_int32, t_uint64, t_int64, t_uint128, t_int128};
-constexpr std::array floats{t_half, t_float, t_double};
-constexpr std::array numeric{t_uint8, t_int8, t_uint16, t_int16, t_uint32, t_int32, t_uint64, t_int64, t_uint128, t_int128, t_half, t_float, t_double};
-} // namespace constexpr_primitives
-struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
+struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value *> {
 	llvm::LLVMContext &llvm_context;
 	std::unique_ptr<llvm::Module> mod;
 	using IRBuilder = llvm::IRBuilder<llvm::NoFolder>;
@@ -62,7 +39,6 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		  llvm_context{llvm_context}, mod{std::move(mod)},
 		  builder{std::make_unique<IRBuilder>(llvm_context)} {
 	}
-	using Base::visit;
 	llvm::Type *llvm_type(const type::Primitive &type) {
 		switch (type.type) {
 			case type::Primitive::boolean:
@@ -136,27 +112,6 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 				 llvm::BasicBlock *insert_before = nullptr) const {
 		return llvm::BasicBlock::Create(llvm_context, name, parent, insert_before);
 	}
-	void visit(const ast::Program &program) {
-		locals.emplace_back();
-		for (auto &top : program.tops)
-			visit(&top);
-		locals.pop_back();
-	}
-	void visit(const ast::TopLevelPtr &top) { visit(top.get()); }
-	void visit(const ast::TopLevelAst *top) {
-		top->visit([&](const auto &top) { visit(top); });
-	}
-	void visit(const ast::top::Function &function) {
-		auto ns = locals.ns->namespace_(function.name, false);
-		if (type_pass) {
-			auto &tlf = ns->emplace_function(this, function.name.final.str, ns, &function);
-			all_function_container.emplace_function(this, tlf);
-		} else {
-			auto &tlf = ns->get_function_by_ast(this, function);
-			if (function.type_arguments.empty())
-				tlf.value(this, {}, true); // always compile non-templated functions
-		}
-	}
 	llvm::Value *generate_function_value(const TopLevelFunction &tlf, const type::Function &type) override {
 		const auto pre_generate_insert_point = builder->GetInsertBlock(); // save the caller's insert point
 		auto ns = tlf.ns;
@@ -208,37 +163,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		builder->SetInsertPoint(pre_generate_insert_point);
 		return llvmfn;
 	}
-	void visit(const ast::top::Namespace &ast) {
-		Namespace *ns = locals.ns;
-		// make every part of the namespace
-		for (auto &part : ast.name.parts) {
-			Namespace new_ns{ns, part.str};
-			ns = &ns->children.try_emplace(new_ns.name, std::move(new_ns))
-						  .first->second;
-		}
-		Namespace _new_ns{ns, ast.name.final.str};
-		ns = &ns->children.try_emplace(_new_ns.name, std::move(_new_ns))
-					  .first->second;
-		LocalScope old_locals(ns);
-		std::swap(locals, old_locals);
-		locals.emplace_back();
-		for (auto &top : ast.tops)
-			visit(&top);
-		locals.pop_back();
-		std::swap(locals, old_locals);
-	}
-	void visit(const ast::StatementPtr &statement) { visit(statement.get()); }
-	void visit(const ast::StatementAst *statement) {
-		statement->visit(
-				[&](const auto &statement) { visit(statement); });
-	}
-	void visit(const ast::stmt::Block &statement) {
-		locals.emplace_back();
-		for (const auto &stmt : statement.statements)
-			visit(&stmt);
-		locals.pop_back();
-	}
-	void visit(const ast::stmt::If &statement) {
+	void impl_visit(const ast::stmt::If &statement) override {
 		const auto true_block = create_block("true");
 		const auto false_block = create_block("false");
 		const auto end_block = create_block();
@@ -254,8 +179,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		end_block->moveAfter(builder->GetInsertBlock());
 		builder->SetInsertPoint(end_block);
 	}
-	void visit(const ast::stmt::For &statement) {
-		locals.emplace_back(); // init variable is local
+	void impl_visit(const ast::stmt::For &statement) override {
 		const auto init_block = create_block("forinit");
 		const auto end_block = create_block("forend");
 		builder->CreateBr(init_block);
@@ -281,9 +205,8 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		builder->CreateBr(cond_block);
 		end_block->moveAfter(builder->GetInsertBlock());
 		builder->SetInsertPoint(end_block);
-		locals.pop_back();
 	}
-	void visit(const ast::stmt::While &statement) {
+	void impl_visit(const ast::stmt::While &statement) override {
 		const auto cond_block = create_block("whilecond");
 		const auto end_block = create_block("whileend");
 		builder->CreateBr(cond_block);
@@ -297,11 +220,10 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		end_block->moveAfter(builder->GetInsertBlock());
 		builder->SetInsertPoint(end_block);
 	}
-	void visit(const ast::stmt::Return &statement) {
-		const auto value = deref(visit(statement.expr));
+	void impl_return(Value value) override {
 		builder->CreateRet(value.value);
 	}
-	void visit(const ast::stmt::Expr &statement) {
+	void impl_visit(const ast::stmt::Expr &statement) override {
 		auto value = deref(visit(statement.expr));
 		const char *format_str;
 		if (value.type == type::t_int32)
@@ -323,153 +245,196 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 				printf, {builder->CreateGlobalStringPtr(format_str), value.value}, "tmp");
 	}
 
-	void visit(const ast::stmt::Variable &statement) {
+	Value variable_ref_value(const ast::stmt::Variable &statement) override {
 		const auto value = deref(visit(statement.expr));
 		auto type = statement.type ? visit(*statement.type) : value.type;
 		const auto alloc =
 				builder->CreateAlloca(llvm_type(type), nullptr, statement.name);
 		builder->CreateStore(value.value, alloc);
-		auto &values = locals.back().values;
-		if (values.contains(statement.name))
-			throw std::runtime_error(fmt("Variable '", statement.name,
-										 "' already defined ", statement.location));
 		type.is_ref = true;
 		type.is_const = false;
-		values.emplace(statement.name, Value{std::move(type), alloc});
+		return Value{type, alloc};
 	}
 
-	Value visit(const ast::ExprPtr &expr) { return visit(expr.get()); }
-	Value visit(const ast::ExprAst *expr) {
-		return expr->visit(
-				[&](const auto &expr) -> Value { return visit(expr); });
-	}
-
-	using bop_generator = Value (*)(LlvmVisitor &, const Value &, const Value &);
-	using unary_generator = Value (*)(LlvmVisitor &, const Value &);
 
 	/// If value is NOT a reference, returns it.
 	/// Otherwise, `load` and returns this value.
-	Value deref(Value value) {
-		if (!value.type.is_ref)
-			return value;
-		auto loaded_type = value.type; // copy
-		loaded_type.is_const = false;
-		loaded_type.is_ref = false;
-		const auto loaded =
-				builder->CreateLoad(llvm_type(loaded_type), value.value, "tmp");
-		return Value{loaded_type, loaded};
+	llvm::Value *impl_deref(type::Type when_loaded, llvm::Value *ref) override {
+		return builder->CreateLoad(llvm_type(when_loaded), ref, "tmp");
 	}
-	/// If value is a reference, returns it.
-	/// Otherwise, `alloca`s and returns a const T&.
-	Value mkref(Value value) {
-		if (value.type.is_ref)
-			return value;
-		auto ref_type = value.type; // copy
-		ref_type.is_const = true;
-		ref_type.is_ref = true;
+	/// Store the value on the stack, return a pointer to that value.
+	llvm::Value *impl_mkref(Value value) override {
 		const auto alloca = builder->CreateAlloca(llvm_type(value.type), nullptr, "tmp");
 		builder->CreateStore(value.value, alloca);
-		return Value{ref_type, alloca};
-	}
-	template<const type::Type &left, const operators::binary op, llvm::Value *(*Lambda)(LlvmVisitor &, llvm::Value *, llvm::Value *), const type::Type &right = left, const type::Type &result = left>
-	static std::pair<operation::Binary, bop_generator>
-	bop() {
-		return std::make_pair<operation::Binary, bop_generator>(
-				operation::Binary{left, right, op},
-				static_cast<bop_generator>(+[](LlvmVisitor &visitor, const Value &lhs, const Value &rhs) -> Value {
-					return Value{result, Lambda(visitor, visitor.deref(lhs).value, visitor.deref(rhs).value)};
-				}));
-	}
-#define BUILDER_FUNCTION(name)                                        \
-	[](LlvmVisitor &visitor, llvm::Value *left, llvm::Value *right) { \
-		return visitor.builder->name(left, right, "tmp");             \
-	}
-	static std::vector<std::pair<operation::Binary, bop_generator>>
-	builtin_binary_operations() {
-		std::vector<std::pair<operation::Binary, bop_generator>> bops{};
-		using namespace constexpr_primitives;
-		utils::integer_range_loop<0, integers.size()>([&]<size_t Index>() {
-			constexpr auto &same = integers[Index];
-			bops.push_back(bop<same, operators::b_and, BUILDER_FUNCTION(CreateAnd)>());
-			bops.push_back(bop<same, operators::b_or, BUILDER_FUNCTION(CreateOr)>());
-			bops.push_back(bop<same, operators::b_xor, BUILDER_FUNCTION(CreateXor)>());
-			bops.push_back(bop<same, operators::b_shl, BUILDER_FUNCTION(CreateShl)>());
-			bops.push_back(bop<same, operators::add, BUILDER_FUNCTION(CreateAdd)>());
-			bops.push_back(bop<same, operators::sub, BUILDER_FUNCTION(CreateSub)>());
-			bops.push_back(bop<same, operators::mul, BUILDER_FUNCTION(CreateMul)>());
-		});
-		utils::integer_range_loop<0, unsigneds.size()>([&]<size_t Index>() {
-			constexpr auto &uns = unsigneds[Index];
-			bops.push_back(bop<uns, operators::b_shr, BUILDER_FUNCTION(CreateLShr)>());
-			bops.push_back(bop<uns, operators::div, BUILDER_FUNCTION(CreateUDiv)>());
-			bops.push_back(bop<uns, operators::mod, BUILDER_FUNCTION(CreateURem)>());
-			constexpr auto &sig = signeds[Index];
-			// int32 + uint32 = int32
-			bops.push_back(bop<sig, operators::b_and, BUILDER_FUNCTION(CreateAnd), uns, sig>());
-			bops.push_back(bop<sig, operators::b_or, BUILDER_FUNCTION(CreateOr), uns, sig>());
-			bops.push_back(bop<sig, operators::b_xor, BUILDER_FUNCTION(CreateXor), uns, sig>());
-			bops.push_back(bop<sig, operators::b_shl, BUILDER_FUNCTION(CreateShl), uns, sig>());
-			bops.push_back(bop<sig, operators::add, BUILDER_FUNCTION(CreateAdd), uns, sig>());
-			bops.push_back(bop<sig, operators::sub, BUILDER_FUNCTION(CreateSub), uns, sig>());
-			bops.push_back(bop<sig, operators::mul, BUILDER_FUNCTION(CreateMul), uns, sig>());
-			// uint32 + int32 = int32
-			bops.push_back(bop<uns, operators::b_and, BUILDER_FUNCTION(CreateAnd), sig, sig>());
-			bops.push_back(bop<uns, operators::b_or, BUILDER_FUNCTION(CreateOr), sig, sig>());
-			bops.push_back(bop<uns, operators::b_xor, BUILDER_FUNCTION(CreateXor), sig, sig>());
-			bops.push_back(bop<uns, operators::b_shl, BUILDER_FUNCTION(CreateShl), sig, sig>());
-			bops.push_back(bop<uns, operators::add, BUILDER_FUNCTION(CreateAdd), sig, sig>());
-			bops.push_back(bop<uns, operators::sub, BUILDER_FUNCTION(CreateSub), sig, sig>());
-			bops.push_back(bop<uns, operators::mul, BUILDER_FUNCTION(CreateMul), sig, sig>());
-		});
-		utils::integer_range_loop<0, signeds.size()>([&]<size_t Index>() {
-			constexpr auto &sig = signeds[Index];
-			bops.push_back(bop<sig, operators::b_shr, BUILDER_FUNCTION(CreateAShr)>());
-			bops.push_back(bop<sig, operators::div, BUILDER_FUNCTION(CreateSDiv)>());
-			bops.push_back(bop<sig, operators::mod, BUILDER_FUNCTION(CreateSRem)>());
-		});
-		utils::integer_range_loop<0, floats.size()>([&]<size_t Index>() {
-			constexpr auto &flo = floats[Index];
-			bops.push_back(bop<flo, operators::add, BUILDER_FUNCTION(CreateFAdd)>());
-			bops.push_back(bop<flo, operators::sub, BUILDER_FUNCTION(CreateFSub)>());
-			bops.push_back(bop<flo, operators::mul, BUILDER_FUNCTION(CreateFMul)>());
-			bops.push_back(bop<flo, operators::div, BUILDER_FUNCTION(CreateFDiv)>());
-			bops.push_back(bop<flo, operators::mod, BUILDER_FUNCTION(CreateFRem)>());
-		});
-		bops.push_back(
-				bop<t_float, operators::pow,
-					[](LlvmVisitor &visitor, llvm::Value *left, llvm::Value *right) {
-						const auto ty = llvm::Type::getFloatTy(visitor.llvm_context);
-						return static_cast<llvm::Value *>(visitor.builder->CreateCall(
-								visitor.mod->getOrInsertFunction("llvm.pow.f32", ty, ty, ty),
-								{left, right}, "tmp"));
-					}>());
-		bops.push_back(
-				bop<t_double, operators::pow,
-					[](LlvmVisitor &visitor, llvm::Value *left, llvm::Value *right) {
-						const auto ty = llvm::Type::getDoubleTy(visitor.llvm_context);
-						return static_cast<llvm::Value *>(visitor.builder->CreateCall(
-								visitor.mod->getOrInsertFunction("llvm.pow.f64", ty, ty, ty),
-								{left, right}, "tmp"));
-					}>());
-		return bops;
+		return alloca;
 	}
 
-	std::vector<std::pair<operation::Binary, bop_generator>> binary_operations{
-			std::move(builtin_binary_operations())};
-
-	Value assignment(const ast::expr::Binop &expr) {
-		const auto lvalue = visit(expr.left);
-		const auto rvalue = deref(visit(expr.right));
-		if (!lvalue.type.is_ref)
-			throw std::runtime_error(
-					fmt("Left side of assignment is not an lvalue ", expr.location));
-		if (lvalue.type.is_const)
-			throw std::runtime_error(
-					fmt("Left side of assignment is constant ", expr.location));
+	/// Store rvalue into the reference lvalue
+	void impl_store(Value lvalue, Value rvalue) override {
 		builder->CreateStore(rvalue.value, lvalue.value);
-		return lvalue;
 	}
-	Value logical(const ast::expr::Binop &expr) {
+
+#define UNARY_IMPL_FUNCTION(name, operation)           \
+	llvm::Value *name(llvm::Value *operand) override { \
+		return builder->operation(operand, "tmp");     \
+	}
+
+	UNARY_IMPL_FUNCTION(unary_b_not_u8, CreateNot)
+	UNARY_IMPL_FUNCTION(unary_b_not_u16, CreateNot)
+	UNARY_IMPL_FUNCTION(unary_b_not_u32, CreateNot)
+	UNARY_IMPL_FUNCTION(unary_b_not_u64, CreateNot)
+	UNARY_IMPL_FUNCTION(unary_b_not_u128, CreateNot)
+
+	UNARY_IMPL_FUNCTION(unary_neg_u8, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_u16, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_u32, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_u64, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_u128, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_i8, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_i16, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_i32, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_i64, CreateNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_i128, CreateNeg)
+
+	UNARY_IMPL_FUNCTION(unary_neg_half, CreateFNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_float, CreateFNeg)
+	UNARY_IMPL_FUNCTION(unary_neg_double, CreateFNeg)
+
+	UNARY_IMPL_FUNCTION(unary_l_not_boolean, CreateNot)
+
+#undef UNARY_IMPL_FUNCTION
+
+
+#define BINARY_IMPL_FUNCTION(name, operation)                        \
+	llvm::Value *name(llvm::Value *lhs, llvm::Value *rhs) override { \
+		return builder->operation(lhs, rhs, "tmp");                  \
+	}
+
+
+	BINARY_IMPL_FUNCTION(binary_b_and_u8, CreateAnd)
+	BINARY_IMPL_FUNCTION(binary_b_and_u16, CreateAnd)
+	BINARY_IMPL_FUNCTION(binary_b_and_u32, CreateAnd)
+	BINARY_IMPL_FUNCTION(binary_b_and_u64, CreateAnd)
+	BINARY_IMPL_FUNCTION(binary_b_and_u128, CreateAnd)
+
+	BINARY_IMPL_FUNCTION(binary_b_or_u8, CreateOr)
+	BINARY_IMPL_FUNCTION(binary_b_or_u16, CreateOr)
+	BINARY_IMPL_FUNCTION(binary_b_or_u32, CreateOr)
+	BINARY_IMPL_FUNCTION(binary_b_or_u64, CreateOr)
+	BINARY_IMPL_FUNCTION(binary_b_or_u128, CreateOr)
+
+	BINARY_IMPL_FUNCTION(binary_b_xor_u8, CreateXor)
+	BINARY_IMPL_FUNCTION(binary_b_xor_u16, CreateXor)
+	BINARY_IMPL_FUNCTION(binary_b_xor_u32, CreateXor)
+	BINARY_IMPL_FUNCTION(binary_b_xor_u64, CreateXor)
+	BINARY_IMPL_FUNCTION(binary_b_xor_u128, CreateXor)
+
+	BINARY_IMPL_FUNCTION(binary_b_shl_u8, CreateShl)
+	BINARY_IMPL_FUNCTION(binary_b_shl_u16, CreateShl)
+	BINARY_IMPL_FUNCTION(binary_b_shl_u32, CreateShl)
+	BINARY_IMPL_FUNCTION(binary_b_shl_u64, CreateShl)
+	BINARY_IMPL_FUNCTION(binary_b_shl_u128, CreateShl)
+
+	BINARY_IMPL_FUNCTION(binary_b_shr_u8, CreateLShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_u16, CreateLShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_u32, CreateLShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_u64, CreateLShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_u128, CreateLShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_i8, CreateAShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_i16, CreateAShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_i32, CreateAShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_i64, CreateAShr)
+	BINARY_IMPL_FUNCTION(binary_b_shr_i128, CreateAShr)
+
+	BINARY_IMPL_FUNCTION(binary_add_u8, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_u16, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_u32, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_u64, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_u128, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_i8, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_i16, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_i32, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_i64, CreateAdd)
+	BINARY_IMPL_FUNCTION(binary_add_i128, CreateAdd)
+
+	BINARY_IMPL_FUNCTION(binary_sub_u8, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_u16, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_u32, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_u64, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_u128, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_i8, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_i16, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_i32, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_i64, CreateSub)
+	BINARY_IMPL_FUNCTION(binary_sub_i128, CreateSub)
+
+	BINARY_IMPL_FUNCTION(binary_mul_u8, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_u16, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_u32, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_u64, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_u128, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_i8, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_i16, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_i32, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_i64, CreateMul)
+	BINARY_IMPL_FUNCTION(binary_mul_i128, CreateMul)
+
+	BINARY_IMPL_FUNCTION(binary_div_u8, CreateUDiv)
+	BINARY_IMPL_FUNCTION(binary_div_u16, CreateUDiv)
+	BINARY_IMPL_FUNCTION(binary_div_u32, CreateUDiv)
+	BINARY_IMPL_FUNCTION(binary_div_u64, CreateUDiv)
+	BINARY_IMPL_FUNCTION(binary_div_u128, CreateUDiv)
+	BINARY_IMPL_FUNCTION(binary_div_i8, CreateSDiv)
+	BINARY_IMPL_FUNCTION(binary_div_i16, CreateSDiv)
+	BINARY_IMPL_FUNCTION(binary_div_i32, CreateSDiv)
+	BINARY_IMPL_FUNCTION(binary_div_i64, CreateSDiv)
+	BINARY_IMPL_FUNCTION(binary_div_i128, CreateSDiv)
+
+	BINARY_IMPL_FUNCTION(binary_mod_u8, CreateURem)
+	BINARY_IMPL_FUNCTION(binary_mod_u16, CreateURem)
+	BINARY_IMPL_FUNCTION(binary_mod_u32, CreateURem)
+	BINARY_IMPL_FUNCTION(binary_mod_u64, CreateURem)
+	BINARY_IMPL_FUNCTION(binary_mod_u128, CreateURem)
+	BINARY_IMPL_FUNCTION(binary_mod_i8, CreateSRem)
+	BINARY_IMPL_FUNCTION(binary_mod_i16, CreateSRem)
+	BINARY_IMPL_FUNCTION(binary_mod_i32, CreateSRem)
+	BINARY_IMPL_FUNCTION(binary_mod_i64, CreateSRem)
+	BINARY_IMPL_FUNCTION(binary_mod_i128, CreateSRem)
+
+	BINARY_IMPL_FUNCTION(binary_add_half, CreateFAdd)
+	BINARY_IMPL_FUNCTION(binary_add_float, CreateFAdd)
+	BINARY_IMPL_FUNCTION(binary_add_double, CreateFAdd)
+
+	BINARY_IMPL_FUNCTION(binary_sub_half, CreateFSub)
+	BINARY_IMPL_FUNCTION(binary_sub_float, CreateFSub)
+	BINARY_IMPL_FUNCTION(binary_sub_double, CreateFSub)
+
+	BINARY_IMPL_FUNCTION(binary_mul_half, CreateFMul)
+	BINARY_IMPL_FUNCTION(binary_mul_float, CreateFMul)
+	BINARY_IMPL_FUNCTION(binary_mul_double, CreateFMul)
+
+	BINARY_IMPL_FUNCTION(binary_div_half, CreateFDiv)
+	BINARY_IMPL_FUNCTION(binary_div_float, CreateFDiv)
+	BINARY_IMPL_FUNCTION(binary_div_double, CreateFDiv)
+
+	BINARY_IMPL_FUNCTION(binary_mod_half, CreateFRem)
+	BINARY_IMPL_FUNCTION(binary_mod_float, CreateFRem)
+	BINARY_IMPL_FUNCTION(binary_mod_double, CreateFRem)
+
+	llvm::Value *binary_pow_float(llvm::Value *lhs, llvm::Value *rhs) override {
+		const auto ty = llvm::Type::getFloatTy(llvm_context);
+		return builder->CreateCall(
+				mod->getOrInsertFunction("llvm.pow.f32", ty, ty, ty),
+				{lhs, rhs}, "tmp");
+	}
+	llvm::Value *binary_pow_double(llvm::Value *lhs, llvm::Value *rhs) override {
+		const auto ty = llvm::Type::getDoubleTy(llvm_context);
+		return builder->CreateCall(
+				mod->getOrInsertFunction("llvm.pow.f64", ty, ty, ty),
+				{lhs, rhs}, "tmp");
+	}
+#undef BINARY_IMPL_FUNCTION
+	Value impl_logical(const ast::expr::Binop &expr) override {
 		auto left = visit(expr.left);
 		if (left.type != type::boolean)
 			throw std::runtime_error(fmt(
@@ -497,86 +462,118 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		phi->addIncoming(right.value, right_bb);
 		return Value{type::boolean, phi};
 	}
-
-	std::optional<Value> try_binop(const ast::expr::Binop &expr, const Value &lvalue, const Value &rvalue) {
-		for (auto &[op, gen] : binary_operations) {
-			if (op.op == expr.op && op.left == lvalue.type &&
-				op.right == rvalue.type) {
-				return gen(*this, lvalue, rvalue);
-			}
-		}
-		std::string_view op_str = string(expr.op);
-		auto types = std::array{lvalue.type, rvalue.type};
-		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
-			auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-											function->value, std::array{lvalue.value, rvalue.value}, "tmp");
-			return Value{
-					*function->type.return_type,
-					call};
-		}
-		return std::nullopt;
+	llvm::Value *impl_call(type::Function type, llvm::Value *fn, std::span<llvm::Value *> values) override {
+		const llvm::ArrayRef args{values.data(), values.size()};
+		return builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(type)),
+								   fn, args, "tmp");
 	}
-	Value visit(const ast::expr::Binop &expr) {
-		if (expr.op == operators::assign)
-			return assignment(expr);
-		if (expr.op == operators::l_and || expr.op == operators::l_or)
-			return logical(expr);
-		auto lvalue = visit(expr.left);
-		auto rvalue = visit(expr.right);
-        if(auto value = try_binop(expr, lvalue, rvalue))
-            return *value;
-		lvalue = deref(lvalue);
-		rvalue = deref(rvalue);
-		if(auto value = try_binop(expr, lvalue, rvalue))
-			return *value;
-		throw std::runtime_error(fmt("Couldn't find a corresponding operation (function) for ", expr.location, " :("));
+	llvm::Value *impl_value_call(type::Function type, llvm::Value *fn, std::span<llvm::Value *> values) override {
+		return impl_call(type, fn, values);
 	}
 
-	template<const type::Type &left, const operators::comparison op, llvm::Value *(*Lambda)(LlvmVisitor &, llvm::Value *, llvm::Value *), const type::Type &right = left, const type::Type &result = left>
-	static std::pair<operation::Comparison, bop_generator>
-	cop() {
-		return std::make_pair<operation::Comparison, bop_generator>(
-				operation::Comparison{left, right, op},
-				static_cast<bop_generator>(+[](LlvmVisitor &visitor, const Value &lhs, const Value &rhs) -> Value {
-					return Value{result, Lambda(visitor, visitor.deref(lhs).value, visitor.deref(rhs).value)};
-				}));
+
+#define COMPARE_IMPL_FUNCTION(name, operation)                       \
+	llvm::Value *name(llvm::Value *lhs, llvm::Value *rhs) override { \
+		return builder->operation(lhs, rhs, "tmp");                  \
 	}
-	static std::vector<std::pair<operation::Comparison, bop_generator>>
-	builtin_comparison_operations() {
-		std::vector<std::pair<operation::Comparison, bop_generator>> cops{};
-		using namespace constexpr_primitives;
-		utils::integer_range_loop<0, unsigneds.size()>([&]<size_t Index>() {
-			constexpr auto &uns = unsigneds[Index];
-			cops.push_back(cop<uns, operators::less, BUILDER_FUNCTION(CreateICmpULT)>());
-			cops.push_back(cop<uns, operators::less_eq, BUILDER_FUNCTION(CreateICmpULE)>());
-			cops.push_back(cop<uns, operators::greater, BUILDER_FUNCTION(CreateICmpUGT)>());
-			cops.push_back(cop<uns, operators::greater_eq, BUILDER_FUNCTION(CreateICmpUGE)>());
-			cops.push_back(cop<uns, operators::eq_eq, BUILDER_FUNCTION(CreateICmpEQ)>());
-			cops.push_back(cop<uns, operators::not_equal, BUILDER_FUNCTION(CreateICmpNE)>());
-		});
-		utils::integer_range_loop<0, signeds.size()>([&]<size_t Index>() {
-			constexpr auto &sig = signeds[Index];
-			cops.push_back(cop<sig, operators::less, BUILDER_FUNCTION(CreateICmpSLT)>());
-			cops.push_back(cop<sig, operators::less_eq, BUILDER_FUNCTION(CreateICmpSLE)>());
-			cops.push_back(cop<sig, operators::greater, BUILDER_FUNCTION(CreateICmpSGT)>());
-			cops.push_back(cop<sig, operators::greater_eq, BUILDER_FUNCTION(CreateICmpSGE)>());
-			cops.push_back(cop<sig, operators::eq_eq, BUILDER_FUNCTION(CreateICmpEQ)>());
-			cops.push_back(cop<sig, operators::not_equal, BUILDER_FUNCTION(CreateICmpNE)>());
-		});
-		utils::integer_range_loop<0, floats.size()>([&]<size_t Index>() {
-			constexpr auto &flo = floats[Index];
-			cops.push_back(cop<flo, operators::less, BUILDER_FUNCTION(CreateFCmpOLT)>());
-			cops.push_back(cop<flo, operators::less_eq, BUILDER_FUNCTION(CreateFCmpOLE)>());
-			cops.push_back(cop<flo, operators::greater, BUILDER_FUNCTION(CreateFCmpOGT)>());
-			cops.push_back(cop<flo, operators::greater_eq, BUILDER_FUNCTION(CreateFCmpOGE)>());
-			cops.push_back(cop<flo, operators::eq_eq, BUILDER_FUNCTION(CreateFCmpOEQ)>());
-			cops.push_back(cop<flo, operators::not_equal, BUILDER_FUNCTION(CreateFCmpONE)>());
-		});
-		return cops;
-	}
-	std::vector<std::pair<operation::Comparison, bop_generator>>
-			comparison_operations{std::move(builtin_comparison_operations())};
-	Value visit(const ast::expr::Comparison &expr) {
+	COMPARE_IMPL_FUNCTION(comparison_less_u8, CreateICmpULT)
+	COMPARE_IMPL_FUNCTION(comparison_less_u16, CreateICmpULT)
+	COMPARE_IMPL_FUNCTION(comparison_less_u32, CreateICmpULT)
+	COMPARE_IMPL_FUNCTION(comparison_less_u64, CreateICmpULT)
+	COMPARE_IMPL_FUNCTION(comparison_less_u128, CreateICmpULT)
+
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_u8, CreateICmpULE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_u16, CreateICmpULE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_u32, CreateICmpULE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_u64, CreateICmpULE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_u128, CreateICmpULE)
+
+	COMPARE_IMPL_FUNCTION(comparison_greater_u8, CreateICmpUGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_u16, CreateICmpUGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_u32, CreateICmpUGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_u64, CreateICmpUGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_u128, CreateICmpUGT)
+
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u8, CreateICmpUGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u16, CreateICmpUGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u32, CreateICmpUGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u64, CreateICmpUGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u128, CreateICmpUGE)
+
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u8, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u16, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u32, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u64, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u128, CreateICmpEQ)
+
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_u8, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_u16, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_u32, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_u64, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_u128, CreateICmpNE)
+
+	COMPARE_IMPL_FUNCTION(comparison_less_i8, CreateICmpSLT)
+	COMPARE_IMPL_FUNCTION(comparison_less_i16, CreateICmpSLT)
+	COMPARE_IMPL_FUNCTION(comparison_less_i32, CreateICmpSLT)
+	COMPARE_IMPL_FUNCTION(comparison_less_i64, CreateICmpSLT)
+	COMPARE_IMPL_FUNCTION(comparison_less_i128, CreateICmpSLT)
+
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_i8, CreateICmpSLE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_i16, CreateICmpSLE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_i32, CreateICmpSLE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_i64, CreateICmpSLE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_i128, CreateICmpSLE)
+
+	COMPARE_IMPL_FUNCTION(comparison_greater_i8, CreateICmpSGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_i16, CreateICmpSGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_i32, CreateICmpSGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_i64, CreateICmpSGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_i128, CreateICmpSGT)
+
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_i8, CreateICmpSGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_i16, CreateICmpSGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_i32, CreateICmpSGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_i64, CreateICmpSGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_i128, CreateICmpSGE)
+
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_i8, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_i16, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_i32, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_i64, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_i128, CreateICmpEQ)
+
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_i8, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_i16, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_i32, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_i64, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_i128, CreateICmpNE)
+
+
+	COMPARE_IMPL_FUNCTION(comparison_less_half, CreateFCmpOLT)
+	COMPARE_IMPL_FUNCTION(comparison_less_float, CreateFCmpOLT)
+	COMPARE_IMPL_FUNCTION(comparison_less_double, CreateFCmpOLT)
+
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_half, CreateFCmpOLE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_float, CreateFCmpOLE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_double, CreateFCmpOLE)
+
+	COMPARE_IMPL_FUNCTION(comparison_greater_half, CreateFCmpOGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_float, CreateFCmpOGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_double, CreateFCmpOGT)
+
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_half, CreateFCmpOGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_float, CreateFCmpOGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_double, CreateFCmpOGE)
+
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_half, CreateFCmpOEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_float, CreateFCmpOEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_double, CreateFCmpOEQ)
+
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_half, CreateFCmpONE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_float, CreateFCmpONE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_double, CreateFCmpONE)
+
+	Value impl_comparison(const ast::expr::Comparison &expr) override {
 		auto lvalue = visit(&expr.operands[0]);
 		const auto start_block = builder->GetInsertBlock();
 		const auto end_block = create_block();
@@ -624,63 +621,7 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		return Value{result_type, phi};
 	}
 
-	template<const type::Type &type, const operators::unary op, llvm::Value *(*Lambda)(LlvmVisitor &visitor, llvm::Value *operand), const type::Type &result = type>
-	std::pair<operation::Unary, unary_generator> static uop() {
-		return std::make_pair<operation::Unary, unary_generator>(
-				operation::Unary{type, op},
-				static_cast<unary_generator>(+[](LlvmVisitor &visitor, const Value &operand) -> Value {
-					return Value{type, Lambda(visitor, visitor.deref(operand).value)};
-				}));
-	}
-#undef BUILDER_FUNCTION
-#define BUILDER_FUNCTION(name) \
-	[](LlvmVisitor &visitor, llvm::Value *operand) { return visitor.builder->name(operand); }
-
-	static std::vector<std::pair<operation::Unary, unary_generator>>
-	builtin_unary_operations() {
-		std::vector<std::pair<operation::Unary, unary_generator>> ops{};
-		using namespace constexpr_primitives;
-		utils::integer_range_loop<0, numeric.size()>([&]<size_t Index>() {
-			constexpr auto &num = numeric[Index];
-			ops.push_back(uop<num, operators::pos,
-							  [](LlvmVisitor &, llvm::Value *operand) { return operand; }>());
-		});
-		utils::integer_range_loop<0, unsigneds.size()>([&]<size_t Index>() {
-			constexpr auto &uns = unsigneds[Index];
-			ops.push_back(uop<uns, operators::b_not, BUILDER_FUNCTION(CreateNot)>());
-			ops.push_back(std::make_pair<operation::Unary, unary_generator>(
-					operation::Unary{uns, operators::neg},
-					static_cast<unary_generator>([](LlvmVisitor &visitor, const Value &operand) -> Value {
-						return Value{signeds[Index],
-									 visitor.builder->CreateNeg(visitor.deref(operand).value)};
-					})));
-		});
-		utils::integer_range_loop<0, signeds.size()>([&]<size_t Index>() {
-			constexpr auto &sig = signeds[Index];
-			ops.push_back(uop<sig, operators::neg, BUILDER_FUNCTION(CreateNeg)>());
-		});
-		utils::integer_range_loop<0, floats.size()>([&]<size_t Index>() {
-			constexpr auto &flo = floats[Index];
-			ops.push_back(uop<flo, operators::neg, BUILDER_FUNCTION(CreateFNeg)>());
-		});
-		ops.push_back(
-				uop<t_boolean, operators::l_not, BUILDER_FUNCTION(CreateNot)>());
-		return ops;
-	}
-	std::vector<std::pair<operation::Unary, unary_generator>> unary_operations{
-			std::move(builtin_unary_operations())};
-	Value visit(const ast::expr::Unary &expr) {
-		auto operand = visit(expr.expr);
-		for (auto &[op, gen] : unary_operations) {
-			if (op.op == expr.op && op.operand == operand.type) {
-				return gen(*this, operand);
-			}
-		}
-		throw std::runtime_error(
-				fmt("No matching unary operation ", expr.location));
-	}
-
-	Value visit(const ast::expr::Conditional &expr) {
+	Value impl_conditional(const ast::expr::Conditional &expr) override {
 		const auto true_block = create_block("true");
 		const auto false_block = create_block("false");
 		const auto end_block = create_block();
@@ -706,231 +647,48 @@ struct LlvmVisitor final : backend::Base<llvm::Value *, llvm::Value *> {
 		return Value{true_value.type, phi};
 	}
 
-	Value value_call(const ast::expr::Call &expr) {
-		auto function = visit(expr.callee);
-		if (function.type.is<type::Pointer>() &&
-			function.type.get<type::Pointer>().pointed->is<type::Function>())
-			function =
-					deref(function); // make sure it's a ptr-fn and not a ref-ptr-fn
-		else if (function.type.is<type::Function>() && function.type.is_ref) {
-			function.type.is_ref = false;
-			function.type =
-					type::Pointer{std::make_unique<type::Type>(function.type)};
-		} else
-			throw std::runtime_error(
-					fmt("Not a function ", expr.location,
-						", expected function pointer or reference to function."));
-		auto &funtype = function.type.get<type::Function>();
-		if (funtype.parameters.size() != expr.arguments.size())
-			throw std::runtime_error(
-					fmt("Wrong number of arguments ", expr.location));
-		std::vector<llvm::Value *> args;
-		for (const auto &[param, arg] :
-			 std::views::zip(funtype.parameters, expr.arguments)) {
-			auto value = visit(&arg);
-			if (value.type != param)
-				throw std::runtime_error(fmt("Argument type mismatch ", expr.location));
-			args.push_back(value.value);
-		}
-		return Value{
-				*funtype.return_type,
-				builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(funtype)),
-									function.value, args, "tmp")};
-	}
-
-	Value name_call(const ast::expr::Call &expr) {
-		const auto id = expr.callee->get<ast::expr::Identifier>();
-		std::vector<Value> args;
-		for (const auto &arg : expr.arguments)
-			args.push_back(visit(&arg));
-		std::vector<type::Type> type_args;
-		for (const auto &arg : id.type_arguments)
-			type_args.push_back(visit(&arg));
-		std::vector<type::Type> arg_types;
-		for (const auto &arg : args)
-			arg_types.push_back(arg.type);
-		auto function = locals.ns->function(this, id.value, type_args, arg_types);
-		if (!function)
-			throw std::runtime_error(fmt("Unknown function ", id.value,
-										 " for the supplied arguments at ",
-										 id.location));
-		std::vector<llvm::Value *> llvm_args;
-		for (const auto &arg : args)
-			llvm_args.push_back(arg.value);
-		auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-										function->value, llvm_args, "tmp");
-		return Value{
-				*function->type.return_type,
-				call};
-	}
-
-	Value visit(const ast::expr::Call &expr) {
-		if (expr.callee->is<ast::expr::Identifier>()) {
-			return name_call(expr);
-		} else {
-			return value_call(expr);
-		}
-	}
-
-	Value visit(const ast::expr::MemberCall &expr) {
-		std::vector args{visit(expr.callee)};
-		for (const auto &arg : expr.arguments)
-			args.push_back(visit(&arg));
-		std::vector<type::Type> type_args;
-		for (const auto &arg : expr.type_arguments)
-			type_args.push_back(visit(&arg));
-		std::vector<type::Type> arg_types;
-		for (const auto &arg : args)
-			arg_types.push_back(arg.type);
-		auto function = all_function_container.get_function(this, expr.name, type_args, arg_types);
-		if (!function)
-			throw std::runtime_error(fmt("Unknown function ", expr.name,
-										 " for the supplied arguments at ",
-										 expr.location));
-		std::vector<llvm::Value *> llvm_args;
-		for (const auto &arg : args)
-			llvm_args.push_back(arg.value);
-		auto call = builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(function->type)),
-										function->value, llvm_args, "tmp");
-		return Value{
-				*function->type.return_type,
-				call};
-	}
-
-	Value visit(const ast::expr::Create &expr) {
-		auto type = visit(expr.type);
-		if (!type.is<type::NamedStruct>())
-			throw std::runtime_error(
-					fmt("Cannot create non-struct types (", expr.location, ")"));
-		const auto &named = type.get<type::NamedStruct>();
-		if (expr.args.size() != named.members.size())
-			throw std::runtime_error(
-					fmt("Wrong number of members for struct ", expr.location));
+	llvm::Value *impl_create(const type::NamedStruct &type, std::span<llvm::Value *> members) override {
 		auto alloca = builder->CreateAlloca(llvm_type(type), nullptr, "alloca");
 		auto struct_ = llvm::cast<llvm::StructType>(llvm_type(type));
-		for (const auto &[sindex, member] :
-			 std::views::enumerate(type.get<type::NamedStruct>().members)) {
+		for (const auto &[sindex, member] : std::views::enumerate(members)) {
 			const size_t index = sindex;
-			const auto &[name, arg] = expr.args[index];
-			// TODO: support name reordering
-			if (!name.empty() && name != member.first)
-				throw std::runtime_error(fmt("Member name mismatch: expected '",
-											 member.first, "', got '", name, "' ",
-											 expr.location));
-			auto value = deref(visit(&arg));
-			if (value.type != member.second)
-				throw std::runtime_error(fmt("Member type mismatch ", expr.location));
 			auto member_alloc = builder->CreateStructGEP(struct_, alloca, static_cast<uint32_t>(index), "tmp");
-			builder->CreateStore(value.value, member_alloc);
+			builder->CreateStore(member, member_alloc);
 		}
-		type.is_const = true;
-		type.is_ref = true;
-		return Value{type, alloca};
+		return alloca;
 	}
 
-	Value visit(const ast::expr::Subscript &expr) {
-		// todo fix
-		auto value = visit(expr.expr);
-		auto index = deref(visit(expr.index));
-		if (!index.type.is<type::Primitive>())
-			throw std::runtime_error(fmt("Index must be a primitive type ", expr.location));
-		auto prim = index.type.get<type::Primitive>();
-		if (!prim.is_integral())
-			throw std::runtime_error(fmt("Index must be an integer type ", expr.location));
-		if (value.type.is<type::Pointer>()) {
-			value = deref(value); // make sure it's a pointer and not a ref-to-ptr
-			const auto &pointer_type = value.type.get<type::Pointer>();
-			type::Type member_type = *pointer_type.pointed;
-			member_type.is_ref = false;
-			member_type.is_const = value.type.is_const;
-			auto gep = builder->CreateGEP(llvm_type(member_type), value.value, index.value, "tmp");
-			member_type.is_ref = true;
-			return Value{member_type, gep};
-		}
-		if (value.type.is<type::Array>()) {
-			value = mkref(value);
-			const auto &array_type = value.type.get<type::Array>();
-			type::Type member_type = *array_type.member;
-			member_type.is_ref = true;
-			member_type.is_const = value.type.is_const;
-			auto gep = builder->CreateGEP(llvm_type(array_type), value.value,
-										  {llvm::ConstantInt::get(llvm_type(index.type), 0), index.value}, "tmp");
-			return Value{member_type, gep};
-		}
-		throw std::runtime_error(
-				fmt("Cannot subscript non-array/pointer types ", expr.location));
+	llvm::Value *impl_subscript_ptr(type::Type pointed_type, llvm::Value *pointer, llvm::Value *index) override {
+		return builder->CreateGEP(llvm_type(pointed_type), pointer, index, "tmp");
 	}
 
-	Value visit(const ast::expr::Array &expr) {
-		if (expr.values.empty())
-			throw std::runtime_error("Empty array");
-		auto first = deref(visit(&expr.values.front()));
-		auto member_type = first.type;
-		type::Type array_type{type::Array{std::make_unique<type::Type>(member_type),
-										  expr.values.size()},
-							  false, true};
-		auto non_ref_array_type = array_type;
-		non_ref_array_type.is_ref = false;
-		auto alloca = builder->CreateAlloca(llvm_type(array_type), nullptr, "alloca");
-		auto llvm_array = llvm_type(non_ref_array_type);
-		builder->CreateStore(first.value, builder->CreateStructGEP(llvm_array, alloca, 0, "tmp"));
-		for (const auto &[index, value] :
-			 std::views::enumerate(expr.values | std::views::drop(1))) {
-			auto value_ = deref(visit(&value));
-			if (value_.type != member_type)
-				throw std::runtime_error(fmt("Array member type mismatch ",
-											 expr.location));
-			auto member_ptr = builder->CreateStructGEP(llvm_array, alloca, static_cast<uint32_t>(index + 1), "tmp");
-			builder->CreateStore(value_.value, member_ptr);
+	llvm::Value *impl_subscript_arr_ref(type::Array array_type, llvm::Value *arr_ref, llvm::Value *index) override {
+		return builder->CreateGEP(llvm_type(array_type), arr_ref,
+								  {llvm::ConstantInt::get(index->getType(), 0), index}, "tmp");
+	}
+
+	llvm::Value *impl_array(const type::Array &type, std::span<llvm::Value *> members) override {
+		auto alloca = builder->CreateAlloca(llvm_type(type), nullptr, "alloca");
+		auto llvm_array = llvm_type(type);
+		for (const auto &[sindex, member] : std::views::enumerate(members)) {
+			const size_t index = sindex;
+			auto member_ptr = builder->CreateStructGEP(llvm_array, alloca, static_cast<uint32_t>(index), "tmp");
+			builder->CreateStore(member, member_ptr);
 		}
-		return Value{array_type, alloca};
+		return alloca;
 	}
 
-	Value visit(const ast::expr::Member &expr) {
-		auto value = visit(expr.expr);
-		if (!value.type.is<type::NamedStruct>())
-			throw std::runtime_error(fmt(
-					"Cannot access members of non-struct types (", expr.location, ")"));
-		value = mkref(value); // make sure it's a reference
-		const auto &named = value.type.get<type::NamedStruct>();
-		for (const auto &[index, member] : std::views::enumerate(named.members)) {
-			const auto &[name, type] = member;
-			if (expr.name == name) {
-				auto member_type = type;
-				member_type.is_ref = true;
-				member_type.is_const = value.type.is_const;
-				auto unref_value_type = value.type;
-				unref_value_type.is_ref = false;
-				return Value{member_type,
-							 builder->CreateStructGEP(llvm_type(unref_value_type), value.value, static_cast<uint32_t>(index), "tmp")};
-			}
-		}
-		throw std::runtime_error(fmt("Unknown member '", expr.name, "' in struct '",
-									 named.name, "' ", expr.location));
+	llvm::Value *impl_member(const type::NamedStruct &type, llvm::Value *struct_ref, size_t member_index) override {
+		return builder->CreateStructGEP(llvm_type(type), struct_ref, static_cast<uint32_t>(member_index), "tmp");
 	}
 
-	const Value &visit(const ast::expr::Identifier &expr) {
-		if (!expr.type_arguments.empty())
-			throw std::runtime_error(fmt("Type arguments are not supported for bare identifiers ", expr.location));
-		const auto value = locals.value(expr.value);
-		if (value == nullptr)
-			throw std::runtime_error(
-					fmt("Unknown identifier: ", expr.value, ' ', expr.location));
-		return *value;
+	llvm::Value *impl_const_int32(int32_t value) override {
+		return llvm::ConstantInt::get(
+				llvm::Type::getInt32Ty(llvm_context), value);
 	}
-
-	Value visit(const ast::expr::Number &expr) {
-		return expr.value.visit(
-				[&](const ast::expr::Number::uint_t uinty) -> Value {
-					return Value{type::t_int32,
-								 llvm::ConstantInt::get(
-										 llvm::Type::getInt32Ty(llvm_context), uinty)};
-				},
-				[&](const ast::expr::Number::float_t floaty) -> Value {
-					return Value{type::t_double,
-								 llvm::ConstantFP::get(
-										 llvm::Type::getDoubleTy(llvm_context), floaty)};
-				});
+	llvm::Value *impl_const_double(double value) override {
+		return llvm::ConstantFP::get(
+				llvm::Type::getDoubleTy(llvm_context), value);
 	}
 };
 } // namespace

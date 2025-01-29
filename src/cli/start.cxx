@@ -10,7 +10,7 @@ import ast.graph;
 import backend.llvm;
 int start(Args args) {
 	std::vector<ast::Program> programs;
-	for (std::string path : args.files) {
+	for (const std::string& path : args.files) {
 		std::cerr << "opening " << path << "...\n";
 		try {
 			std::cerr << "parsing " << path << "...\n";
@@ -33,6 +33,10 @@ int start(Args args) {
 		graph(nodes, outfile);
 	}
 	std::cerr << "generating object file to " << args.output << "...\n";
-	backend::llvm::generate_object_file(programs, args.output);
+	try {
+		backend::llvm::generate_object_file(programs, args.output);
+	} catch (std::runtime_error &error) {
+		std::cerr << error.what() << std::endl;
+	}
 	return 0;
 }
