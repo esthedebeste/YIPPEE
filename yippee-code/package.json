@@ -1,0 +1,25 @@
+{
+  "name": "yippee",
+  "displayName": "YIPPEE",
+  "description": "little textmate grammar for YIPPEE language support",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "yippee",
+      "aliases": ["YIPPEE", "yippee"],
+      "extensions": [".yip"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "yippee",
+      "scopeName": "source.yippee",
+      "path": "./syntaxes/yippee.tmLanguage.json"
+    }]
+  }
+}

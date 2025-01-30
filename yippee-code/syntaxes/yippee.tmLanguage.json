@@ -1,0 +1,90 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "YIPPEE",
+	"patterns": [
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#names"
+		}
+	],
+	"repository": {
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.line.double-slash.yippee",
+					"match": "//[^\\n]*\\n"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [{
+				"name": "keyword.control.yippee",
+				"match": "\\b(if|while|for|return)\\b"
+			}, {
+				"name": "keyword.operator.new.yippee",
+				"match": "\\b(create)\\b"
+			}, {
+				"name": "storage.type.struct.yippee",
+				"match": "\\b(struct)\\b"
+			}, {
+				"name": "storage.type.function.yippee",
+				"match": "\\b(fun)\\b"
+			}, {
+				"name": "storage.type.namespace.yippee",
+				"match": "\\b(namespace)\\b"
+			}, {
+				"name": "storage.type.built-in.primitive.yippee",
+				"match": "\\b((u?int(8|16|32|64|128))|boolean|half|float|double)\\b"
+			}, {
+				"name": "keyword.operator.assignment.yippee",
+				"match": ":?="
+			}, {
+				"name": "keyword.operator.arithmetic.yippee",
+				"match": "(\\&\\&|\\|\\||\\<\\<|\\>\\>|\\*\\*|\\<\\=|\\>\\=|\\=\\=|\\!\\=|\\=|\\&|\\||\\^|\\+|\\-|\\*|\\/|\\%|\\-|\\+|\\!|\\~|\\<|\\>)"
+			}]
+		},
+		"strings": {
+			"name": "string.quoted.double.yippee",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.yippee",
+					"match": "\\\\."
+				}
+			]
+		},
+		"numbers": {
+			"name": "constant.numeric.yippee",
+			"match": "\\d+"
+		},
+		"names": {
+			"patterns": [
+				{
+					"name": "entity.name.class.yippee",
+					"match": "[A-Z_]\\w*"
+				},
+				{
+					"name": "entity.name.function.call.yippee",
+					"match": "[A-Za-z_]\\w*(?=\\s*(<.*>\\s*)?\\()"
+				},
+				{
+					"name": "variable.other.unknown.yippee",
+					"match": "[A-Za-z_]\\w*"
+				}
+			]
+		}
+	},
+	"scopeName": "source.yippee"
+}
