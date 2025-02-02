@@ -45,13 +45,16 @@
 				"match": "\\b(namespace)\\b"
 			}, {
 				"name": "storage.type.built-in.primitive.yippee",
-				"match": "\\b((u?int(8|16|32|64|128))|boolean|half|float|double)\\b"
+				"match": "\\b(u?int(8|16|32|64|128)|boolean|half|float|double)\\b"
 			}, {
 				"name": "keyword.operator.assignment.yippee",
 				"match": ":?="
 			}, {
 				"name": "keyword.operator.arithmetic.yippee",
 				"match": "(\\&\\&|\\|\\||\\<\\<|\\>\\>|\\*\\*|\\<\\=|\\>\\=|\\=\\=|\\!\\=|\\=|\\&|\\||\\^|\\+|\\-|\\*|\\/|\\%|\\-|\\+|\\!|\\~|\\<|\\>)"
+			}, {
+				"name": "keyword.operator.as.yippee",
+				"match": "\\bas\\b"
 			}]
 		},
 		"strings": {

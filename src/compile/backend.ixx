@@ -563,13 +563,15 @@ struct Base {
 		auto value = visit(statement.expr);
 		impl_expr_stmt(value, statement);
 	}
-	virtual Value variable_ref_value(const ast::stmt::Variable &statement) = 0;
 	void visit(const ast::stmt::Variable &statement) {
 		auto &values = locals.back().values;
 		if (values.contains(statement.name))
 			throw std::runtime_error(fmt("Variable '", statement.name,
 										 "' already defined ", statement.location));
-		const auto value = variable_ref_value(statement);
+		auto value = mkref(deref(visit(statement.expr)));
+		value.type = statement.type ? visit(*statement.type) : value.type;
+		value.type.is_ref = true;
+		value.type.is_const = statement.is_const;
 		values.emplace(statement.name, value);
 	}
 
@@ -1406,6 +1408,23 @@ struct Base {
 		auto alloca = impl_array(array_type, members);
 		return Value{type::Type{array_type, true, true},
 					 alloca};
+	}
+
+	virtual UnderlyingValue impl_numeric_convert(UnderlyingValue value, type::Primitive from, type::Primitive to) = 0;
+	Value visit(const ast::expr::As &expr) {
+		auto value = deref(visit(expr.value));
+		auto type = visit(expr.type);
+		if (!type.is<type::Primitive>() || !value.type.is<type::Primitive>())
+			throw std::runtime_error("`as` expression must be between primitive types");
+		if (type.is_ref)
+			throw std::runtime_error("`as` expression can't convert to a reference type");
+		auto from_prim = value.type.get<type::Primitive>();
+		auto to_prim = type.get<type::Primitive>();
+		if (!from_prim.is_numeric() || !to_prim.is_numeric())
+			throw std::runtime_error("`as` expression must be between numeric types");
+		return Value{
+				type,
+				impl_numeric_convert(value.value, from_prim, to_prim)};
 	}
 
 	virtual UnderlyingValue impl_member(const type::NamedStruct &type, UnderlyingValue struct_ref, size_t member_index) = 0;

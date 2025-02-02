@@ -228,6 +228,8 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		const char *format_str;
 		if (value.type == type::t_int32)
 			format_str = "\"%s\" => %d\n";
+		else if (value.type == type::t_uint64)
+			format_str = "\"%s\" => %llu\n";
 		else if (value.type == type::t_double)
 			format_str = "\"%s\" => %f\n";
 		else if (value.type == type::t_boolean)
@@ -244,18 +246,6 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		builder->CreateCall(
 				printf, {builder->CreateGlobalStringPtr(format_str), builder->CreateGlobalStringPtr(statement.location.content), value.value}, "tmp");
 	}
-
-	Value variable_ref_value(const ast::stmt::Variable &statement) override {
-		const auto value = deref(visit(statement.expr));
-		auto type = statement.type ? visit(*statement.type) : value.type;
-		const auto alloc =
-				builder->CreateAlloca(llvm_type(type), nullptr, statement.name);
-		builder->CreateStore(value.value, alloc);
-		type.is_ref = true;
-		type.is_const = statement.is_const;
-		return Value{type, alloc};
-	}
-
 
 	/// If value is NOT a reference, returns it.
 	/// Otherwise, `load` and returns this value.
@@ -676,6 +666,24 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 			builder->CreateStore(member, member_ptr);
 		}
 		return alloca;
+	}
+
+	llvm::Value *impl_numeric_convert(llvm::Value *value, type::Primitive from, type::Primitive to) override {
+		if (from.is_floating()) {
+			if (to.is_floating())
+				return builder->CreateFPCast(value, llvm_type(to), "tmp");
+			if (to.is_signed())
+				return builder->CreateFPToSI(value, llvm_type(to), "tmp");
+			if (to.is_unsigned())
+				return builder->CreateFPToUI(value, llvm_type(to), "tmp");
+		}
+		if (from.is_signed() && to.is_floating()) {
+			return builder->CreateSIToFP(value, llvm_type(to), "tmp");
+		}
+		if (from.is_unsigned() && to.is_floating()) {
+			return builder->CreateUIToFP(value, llvm_type(to), "tmp");
+		}
+		return builder->CreateIntCast(value, llvm_type(to), to.is_signed(), "tmp");
 	}
 
 	llvm::Value *impl_member(const type::NamedStruct &type, llvm::Value *struct_ref, size_t member_index) override {

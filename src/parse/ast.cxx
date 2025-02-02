@@ -1,10 +1,10 @@
 module;
 #include <coroutine>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <ranges>
 #include <vector>
-#include <optional>
 module ast;
 namespace ast {
 namespace expr {
@@ -13,7 +13,6 @@ Array::Array(const Range &location, std::vector<ExprAst> values)
 Array::Array(const Array &other) = default;
 Array::Array(Array &&other) noexcept = default;
 Array::~Array() = default;
-
 Array &Array::operator=(const Array &other) = default;
 Array &Array::operator=(Array &&other) noexcept = default;
 void Array::children(children_cb cb) const {
@@ -21,6 +20,25 @@ void Array::children(children_cb cb) const {
 		cb(to_ast_base(&value));
 }
 void Array::summarize(std::ostream &os) const { os << "Array(" << values.size() << ")"; }
+
+As::As(const Range &location, ExprPtr value, TypePtr type)
+	: AstBase(location), value{std::move(value)}, type{std::move(type)} {}
+As::As(const As &other) : AstBase(other), value{clone(other.value)}, type{clone(other.type)} {}
+As::As(As &&other) noexcept = default;
+As::~As() = default;
+As &As::operator=(const As &other) {
+	AstBase::operator=(other);
+	value = clone(other.value);
+	type = clone(other.type);
+	return *this;
+}
+As &As::operator=(As &&other) noexcept = default;
+void As::children(children_cb cb) const {
+	cb(to_ast_base(value.get()));
+	cb(to_ast_base(type.get()));
+}
+void As::summarize(std::ostream &os) const { os << "As"; }
+
 Binop::Binop(const Range &location, ExprPtr left, const operators::binary op,
 			 ExprPtr right)
 	: AstBase(location), op{op}, left{std::move(left)},
@@ -416,7 +434,7 @@ void While::children(children_cb cb) const {
 	cb(to_ast_base(body.get()));
 }
 void While::summarize(std::ostream &os) const { os << "WhileStatement"; }
-}
+} // namespace stmt
 namespace top {
 Function::Function(const Range &location, Identifier name,
 				   std::vector<TypeArgument> type_arguments,

@@ -99,6 +99,18 @@ export struct Array final : AstBase {
 	void children(children_cb) const override;
 	void summarize(std::ostream &os) const override;
 };
+export struct As final : AstBase {
+	ExprPtr value;
+	TypePtr type;
+	As(const Range &location, ExprPtr value, TypePtr type);
+	As(const As &other);
+	As(As &&other) noexcept;
+	~As() override;
+	As &operator=(const As &other);
+	As &operator=(As &&other) noexcept;
+	void children(children_cb) const override;
+	void summarize(std::ostream &os) const override;
+};
 export struct Binop final : AstBase {
 	operators::binary op;
 	std::unique_ptr<ExprAst> left, right;
@@ -432,7 +444,7 @@ export struct Primitive final : AstBase {
 } // namespace ast
 
 using ExprVariant =
-		utils::variant<ast::expr::Array, ast::expr::Binop, ast::expr::Call,
+		utils::variant<ast::expr::Array, ast::expr::As, ast::expr::Binop, ast::expr::Call,
 					   ast::expr::Comparison, ast::expr::Conditional, ast::expr::Create,
 					   ast::expr::Identifier, ast::expr::Member, ast::expr::MemberCall,
 					   ast::expr::Number, ast::expr::Subscript, ast::expr::Unary>;

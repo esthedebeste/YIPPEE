@@ -474,21 +474,32 @@ struct Parser : reader::Reader {
 		const bool template_args = **this == '<';
 		ws();
 		if (!template_args && **this != '(')
-			return {ast::expr::Member{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
-									  name}};
+			return ast::ExprAst(ast::expr::Member{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
+												  name});
 		std::vector<ast::TypeAst> type_arguments = parse_type_arguments();
 		std::vector<ast::ExprAst> arguments = parse_exprs("(", ")");
-		return {ast::expr::MemberCall{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)), name,
-									  std::move(type_arguments), std::move(arguments)}};
+		return ast::ExprAst(ast::expr::MemberCall{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)), name,
+												  std::move(type_arguments), std::move(arguments)});
+	}
+
+	ast::expr::As parse_as(ast::ExprAst subject) {
+		const auto loc_start = get_loc();
+		ws();
+		auto type = parse_type();
+		if (!type)
+			error("Expected type after `as`");
+		return ast::expr::As{
+				get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
+				std::make_unique<ast::TypeAst>(std::move(*type))};
 	}
 
 	std::optional<ast::ExprAst> parse_postfix_expr() {
-		auto loc_start = get_loc();
 		auto o_subject = parse_postfixed();
 		if (!o_subject)
 			return std::nullopt;
 		auto subject = std::move(*o_subject);
 		while (true) {
+			ws();
 			switch (**this) {
 				case '(':
 					consume();
@@ -502,6 +513,11 @@ struct Parser : reader::Reader {
 					consume();
 					subject = parse_member(std::move(subject));
 					break;
+				case 'a':
+					if (keyword("as")) {
+						subject = parse_as(std::move(subject));
+						break;
+					}
 				default:
 					return subject;
 			}
