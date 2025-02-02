@@ -4,6 +4,7 @@ module;
 #include <ostream>
 #include <ranges>
 #include <vector>
+#include <optional>
 module ast;
 namespace ast {
 namespace expr {
@@ -118,7 +119,7 @@ void Conditional::children(children_cb cb) const {
 }
 void Conditional::summarize(std::ostream &os) const { os << "Conditional"; }
 Create::Create(const Range &location, TypePtr type,
-			   std::vector<std::pair<std::string, ExprAst>> args)
+			   std::vector<std::pair<std::string_view, ExprAst>> args)
 	: AstBase(location), type(std::move(type)), args(std::move(args)) {}
 Create::Create(const Create &other)
 	: AstBase(other), type{clone(other.type)}, args{other.args} {}
@@ -148,7 +149,7 @@ Identifier &Identifier::operator=(Identifier &&other) noexcept = default;
 void Identifier::summarize(std::ostream &os) const {
 	os << "Identifier(" << value << ")";
 }
-Member::Member(const Range &location, ExprPtr expr, std::string name)
+Member::Member(const Range &location, ExprPtr expr, std::string_view name)
 	: AstBase(location), expr{std::move(expr)}, name{std::move(name)} {}
 Member::Member(const Member &other)
 	: AstBase(other), expr{utils::clone(other.expr)}, name{other.name} {}
@@ -165,7 +166,7 @@ void Member::children(children_cb cb) const { cb(to_ast_base(expr.get())); }
 void Member::summarize(std::ostream &os) const {
 	os << "Member(" << name << ")";
 }
-MemberCall::MemberCall(const Range &location, ExprPtr callee, std::string name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments)
+MemberCall::MemberCall(const Range &location, ExprPtr callee, std::string_view name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments)
 	: AstBase(location), callee{std::move(callee)}, name{std::move(name)},
 	  type_arguments{std::move(type_arguments)}, arguments{std::move(arguments)} {}
 MemberCall::MemberCall(const MemberCall &other)
@@ -238,7 +239,7 @@ Unary &Unary::operator=(Unary &&other) noexcept = default;
 void Unary::children(children_cb cb) const { cb(to_ast_base(expr.get())); }
 void Unary::summarize(std::ostream &os) const { os << "Unary(" << op << ")"; }
 } // namespace expr
-Name::Name(const Range &location, std::string str)
+Name::Name(const Range &location, std::string_view str)
 	: AstBase{location}, str{std::move(str)} {}
 std::ostream &operator<<(std::ostream &stream, const Name &name) {
 	return stream << name.str;
@@ -256,7 +257,7 @@ std::ostream &operator<<(std::ostream &stream, const Identifier &name) {
 void Identifier::summarize(std::ostream &os) const {
 	os << "Identifier(" << *this << ")";
 }
-TypeArgument::TypeArgument(const Range &location, std::string name, std::optional<TypePtr> default_type)
+TypeArgument::TypeArgument(const Range &location, std::string_view name, std::optional<TypePtr> default_type)
 	: AstBase(location), name(std::move(name)), default_type(std::move(default_type)) {}
 TypeArgument::TypeArgument(const TypeArgument &other) : AstBase(other), name(other.name), default_type(clone(other.default_type)) {}
 TypeArgument::TypeArgument(TypeArgument &&other) noexcept = default;
@@ -370,12 +371,12 @@ Return &Return::operator=(const Return &other) {
 Return &Return::operator=(Return &&other) noexcept = default;
 void Return::children(children_cb cb) const { cb(to_ast_base(expr.get())); }
 void Return::summarize(std::ostream &os) const { os << "Return"; }
-Variable::Variable(const Range &location, std::string name,
+Variable::Variable(const Range &location, const bool is_const, std::string_view name,
 				   std::optional<TypePtr> type, ExprPtr expr)
-	: AstBase(location), name{std::move(name)}, type{std::move(type)},
+	: AstBase(location), is_const{is_const}, name{std::move(name)}, type{std::move(type)},
 	  expr{std::move(expr)} {}
 Variable::Variable(const Variable &other)
-	: AstBase(other), name{other.name}, expr{clone(other.expr)} {
+	: AstBase(other), is_const{other.is_const}, name{other.name}, expr{clone(other.expr)} {
 	type = clone(other.type);
 }
 Variable::Variable(Variable &&other) noexcept = default;
@@ -383,6 +384,7 @@ Variable::~Variable() = default;
 Variable &Variable::operator=(const Variable &other) {
 	AstBase::operator=(other);
 	name = other.name;
+	is_const = other.is_const;
 	expr = clone(other.expr);
 	type = clone(other.type);
 	return *this;
@@ -513,6 +515,20 @@ Array &Array::operator=(Array &&other) noexcept = default;
 Array::~Array() {}
 void Array::children(children_cb cb) const { cb(to_ast_base(member.get())); }
 void Array::summarize(std::ostream &os) const { os << "Array(" << size << ")"; }
+Constant::Constant(const Range &location, TypePtr constanted)
+	: AstBase(location), constanted{std::move(constanted)} {}
+Constant::Constant(const Constant &other)
+	: AstBase(other), constanted{clone(other.constanted)} {}
+Constant::Constant(Constant &&other) noexcept = default;
+Constant &Constant::operator=(const Constant &other) {
+	AstBase::operator=(other);
+	constanted = clone(other.constanted);
+	return *this;
+}
+Constant &Constant::operator=(Constant &&other) noexcept = default;
+Constant::~Constant() {}
+void Constant::children(children_cb cb) const { cb(to_ast_base(constanted.get())); }
+void Constant::summarize(std::ostream &os) const { os << "Constant"; }
 Named::Named(const Range &location, Identifier name, std::vector<TypeAst> arguments)
 	: AstBase(location), name{std::move(name)},
 	  arguments{std::move(arguments)} {}

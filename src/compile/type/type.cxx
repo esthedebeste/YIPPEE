@@ -9,8 +9,8 @@ import naming;
 
 namespace {
 std::strong_ordering
-operator<=>(const std::pair<std::string, type::Type> &lhs,
-			const std::pair<std::string, type::Type> &rhs) {
+operator<=>(const std::pair<std::string_view, type::Type> &lhs,
+			const std::pair<std::string_view, type::Type> &rhs) {
 	if (const auto cmp = lhs.first <=> rhs.first; cmp != 0)
 		return cmp;
 	return lhs.second <=> rhs.second;
@@ -43,7 +43,7 @@ std::string Array::mangle() const {
 }
 NamedStruct::NamedStruct(
 		naming::FullName name, std::vector<Type> template_args,
-		std::vector<std::pair<std::string, Type>> members)
+		std::vector<std::pair<std::string_view, Type>> members)
 	: name{std::move(name)}, template_args(std::move(template_args)),
 	  members{std::move(members)} {}
 std::strong_ordering NamedStruct::operator<=>(const NamedStruct &other) const {

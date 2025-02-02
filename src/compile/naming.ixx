@@ -8,8 +8,8 @@ export module naming;
 
 export namespace naming {
 struct FullName {
-	std::vector<std::string> namespaces;
-	std::string final;
+	std::vector<std::string_view> namespaces;
+	std::string_view final;
 	constexpr std::strong_ordering operator<=>(const FullName &other) const {
 		if (const auto cmp = namespaces <=> other.namespaces; cmp != 0)
 			return cmp;

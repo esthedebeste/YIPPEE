@@ -1,6 +1,8 @@
 module;
 #include <ostream>
 #include <ranges>
+#include <array>
+#include <string_view>
 export module operators;
 export namespace operators {
 enum binary {

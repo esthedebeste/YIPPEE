@@ -56,8 +56,8 @@ export const AstBase *to_ast_base(const auto *variant) {
 	return variant->visit([](const auto &arg) -> const AstBase * { return &arg; });
 }
 export struct Name final : AstBase {
-	std::string str;
-	explicit Name(const Range &location, std::string str);
+	std::string_view str;
+	explicit Name(const Range &location, std::string_view str);
 	void summarize(std::ostream &os) const override;
 };
 export std::ostream &operator<<(std::ostream &stream, const Name &name);
@@ -69,9 +69,9 @@ export struct Identifier final : AstBase {
 };
 export std::ostream &operator<<(std::ostream &stream, const Identifier &name);
 export struct TypeArgument final : AstBase {
-	std::string name;
+	std::string_view name;
 	std::optional<std::unique_ptr<TypeAst>> default_type;
-	TypeArgument(const Range &location, std::string name, std::optional<std::unique_ptr<TypeAst>> default_type);
+	TypeArgument(const Range &location, std::string_view name, std::optional<std::unique_ptr<TypeAst>> default_type);
 	TypeArgument(const TypeArgument &other);
 	TypeArgument(TypeArgument &&other) noexcept;
 	~TypeArgument() override;
@@ -150,9 +150,9 @@ export struct Conditional final : AstBase {
 };
 export struct Create final : AstBase {
 	std::unique_ptr<TypeAst> type;
-	std::vector<std::pair<std::string, ExprAst>> args;
+	std::vector<std::pair<std::string_view, ExprAst>> args;
 	Create(const Range &location, std::unique_ptr<TypeAst> type,
-		   std::vector<std::pair<std::string, ExprAst>> args);
+		   std::vector<std::pair<std::string_view, ExprAst>> args);
 	Create(const Create &other);
 	Create(Create &&other) noexcept;
 	~Create() override;
@@ -174,8 +174,8 @@ export struct Identifier final : AstBase {
 };
 export struct Member final : AstBase {
 	std::unique_ptr<ExprAst> expr;
-	std::string name;
-	Member(const Range &location, std::unique_ptr<ExprAst> expr, std::string name);
+	std::string_view name;
+	Member(const Range &location, std::unique_ptr<ExprAst> expr, std::string_view name);
 	Member(const Member &other);
 	Member(Member &&other) noexcept;
 	~Member() override;
@@ -186,10 +186,10 @@ export struct Member final : AstBase {
 };
 export struct MemberCall final : AstBase {
 	std::unique_ptr<ExprAst> callee;
-	std::string name;
+	std::string_view name;
 	std::vector<TypeAst> type_arguments;
 	std::vector<ExprAst> arguments;
-	MemberCall(const Range &location, std::unique_ptr<ExprAst> callee, std::string name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments);
+	MemberCall(const Range &location, std::unique_ptr<ExprAst> callee, std::string_view name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments);
 	MemberCall(const MemberCall &other);
 	MemberCall(MemberCall &&other) noexcept;
 	~MemberCall() override;
@@ -298,10 +298,11 @@ export struct Return final : AstBase {
 	void summarize(std::ostream &os) const override;
 };
 export struct Variable final : AstBase {
-	std::string name;
+	bool is_const;
+	std::string_view name;
 	std::optional<std::unique_ptr<TypeAst>> type;
 	std::unique_ptr<ExprAst> expr;
-	Variable(const Range &location, std::string name, std::optional<std::unique_ptr<TypeAst>> type,
+	Variable(const Range &location, bool is_const, std::string_view name, std::optional<std::unique_ptr<TypeAst>> type,
 			 std::unique_ptr<ExprAst> expr);
 	Variable(const Variable &other);
 	Variable(Variable &&other) noexcept;
@@ -359,7 +360,7 @@ export struct Namespace final : AstBase {
 export struct Struct final : AstBase {
 	Identifier name;
 	std::vector<TypeArgument> type_arguments;
-	using Field = std::pair<std::string, TypeAst>;
+	using Field = std::pair<std::string_view, TypeAst>;
 	std::vector<Field> members;
 	Struct(const Range &location, Identifier name,
 		   std::vector<TypeArgument> type_arguments, std::vector<Field> members);
@@ -382,6 +383,17 @@ export struct Array final : AstBase {
 	Array &operator=(const Array &other);
 	Array &operator=(Array &&other) noexcept;
 	~Array() override;
+	void children(children_cb) const override;
+	void summarize(std::ostream &os) const override;
+};
+export struct Constant final : AstBase {
+	std::unique_ptr<TypeAst> constanted;
+	Constant(const Range &location, std::unique_ptr<TypeAst> pointed);
+	Constant(const Constant &other);
+	Constant(Constant &&other) noexcept;
+	Constant &operator=(const Constant &other);
+	Constant &operator=(Constant &&other) noexcept;
+	~Constant() override;
 	void children(children_cb) const override;
 	void summarize(std::ostream &os) const override;
 };
@@ -431,7 +443,7 @@ using StmtVariant =
 using TopLevelVariant =
 		utils::variant<ast::top::Namespace, ast::top::Function, ast::top::Struct>;
 using TypeVariant =
-		utils::variant<ast::type::Array, ast::type::Named, ast::type::Pointer, ast::type::Primitive>;
+		utils::variant<ast::type::Array, ast::type::Constant, ast::type::Named, ast::type::Pointer, ast::type::Primitive>;
 using AstVariant = utils::unwrap_concat_instantiate<
 		utils::variant, ExprVariant, StmtVariant, TopLevelVariant, TypeVariant,
 		utils::variant<ast::Program, ast::Name, ast::Identifier, ast::TypeArgument>>;

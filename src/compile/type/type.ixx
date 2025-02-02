@@ -37,9 +37,9 @@ export struct Function {
 export struct NamedStruct {
 	naming::FullName name;
 	std::vector<Type> template_args;
-	std::vector<std::pair<std::string, Type>> members;
+	std::vector<std::pair<std::string_view, Type>> members;
 	explicit NamedStruct(naming::FullName name, std::vector<Type> template_args,
-						 std::vector<std::pair<std::string, Type>> members);
+						 std::vector<std::pair<std::string_view, Type>> members);
 	std::strong_ordering operator<=>(const NamedStruct &other) const;
 	bool operator==(const NamedStruct &other) const;
 	[[nodiscard]] std::string mangle() const;

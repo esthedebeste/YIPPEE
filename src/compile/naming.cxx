@@ -14,8 +14,10 @@ std::ostream &operator<<(std::ostream &stream, const FullName &name) {
 }
 std::string FullName::mangle() const {
 	std::string str{};
-	for (auto &ns : namespaces)
-		str += ns + "__";
+	for (auto &ns : namespaces) {
+		str += ns;
+		str += "__";
+	}
 	str += final;
 	str += "_";
 	return str;

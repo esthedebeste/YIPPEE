@@ -1,4 +1,5 @@
 module;
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <functional>
@@ -177,7 +178,7 @@ struct Parser : reader::Reader {
 		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
-		return std::make_optional(ast::Name(get_range(loc_start), std::string(name)));
+		return std::make_optional(ast::Name(get_range(loc_start), name));
 	}
 
 	std::optional<ast::Identifier> parse_identifier() {
@@ -248,6 +249,10 @@ struct Parser : reader::Reader {
 				ast::type::Named(get_range(loc_start), *id, std::move(parameters)));
 	}
 	std::optional<ast::TypeAst> parse_type() {
+		const auto loc_start = get_loc();
+		ws();
+		bool is_const = keyword("const");
+		ws();
 		auto subject = try_<ast::TypeAst>(&Parser::parse_primitive_type,
 										  &Parser::parse_named_type);
 		if (!subject)
@@ -265,6 +270,8 @@ struct Parser : reader::Reader {
 					type = parse_array_type(std::move(type));
 					break;
 				default:
+					if (is_const)
+						type = ast::type::Constant(get_range(loc_start), std::make_unique<ast::TypeAst>(std::move(type)));
 					return std::make_optional(type);
 			}
 		}
@@ -367,10 +374,10 @@ struct Parser : reader::Reader {
 			error("Expected type after create");
 		ws();
 		expect("{");
-		std::vector<std::pair<std::string, ast::ExprAst>> arguments;
+		std::vector<std::pair<std::string_view, ast::ExprAst>> arguments;
 		while (true) {
 			ws();
-			std::string name{parse_name_str()};
+			std::string_view name{parse_name_str()};
 			if (!name.empty()) {
 				ws();
 				expect(":");
@@ -468,10 +475,10 @@ struct Parser : reader::Reader {
 		ws();
 		if (!template_args && **this != '(')
 			return {ast::expr::Member{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
-									  std::string(name)}};
+									  name}};
 		std::vector<ast::TypeAst> type_arguments = parse_type_arguments();
 		std::vector<ast::ExprAst> arguments = parse_exprs("(", ")");
-		return {ast::expr::MemberCall{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)), std::string(name),
+		return {ast::expr::MemberCall{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)), name,
 									  std::move(type_arguments), std::move(arguments)}};
 	}
 
@@ -704,6 +711,9 @@ struct Parser : reader::Reader {
 	}
 	std::optional<ast::stmt::Variable> parse_variable_declaration() {
 		const auto loc_start = get_loc();
+		ws();
+		const bool is_const = keyword("const");
+		ws();
 		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
@@ -714,11 +724,11 @@ struct Parser : reader::Reader {
 		ws();
 		auto type = aon(&Parser::parse_type);
 		ws();
-		if (!try_consume("="))
+		if (!try_consume("=")) {
 			if (type)
 				error("Expected = after type in variable declaration");
-			else
-				return std::nullopt;
+			return std::nullopt;
+		}
 		ws();
 		auto expr = parse_expr();
 		if (!expr)
@@ -727,7 +737,7 @@ struct Parser : reader::Reader {
 		if (!try_consume(";"))
 			error("Expected ; after variable declaration");
 		return std::make_optional(ast::stmt::Variable(
-				get_range(loc_start), std::string(name),
+				get_range(loc_start), is_const, name,
 				type ? std::make_optional(
 							   std::make_unique<ast::TypeAst>(std::move(*type)))
 					 : std::nullopt,
@@ -846,7 +856,7 @@ struct Parser : reader::Reader {
 		if (try_consume("<")) {
 			while (true) {
 				auto loc_start = get_loc();
-				std::string name{parse_name_str()};
+				std::string_view name{parse_name_str()};
 				if (name.empty()) {
 					ws();
 					expect(">");

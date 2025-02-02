@@ -11,6 +11,7 @@ module;
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 export module backend.base;
 import ast;
@@ -45,17 +46,37 @@ struct Base {
 	};
 	struct TopLevelFunction;
 	virtual FunctionValue generate_function_value(const TopLevelFunction &tlf, const type::Function &type) = 0;
+	struct LocalScope;
 	struct Namespace;
+	struct NewLocalScopeHere {
+		LocalScope old_locals;
+		LocalScope *locals_ref;
+		NewLocalScopeHere(Namespace *ns, LocalScope *locals) : old_locals(ns), locals_ref{locals} {
+			std::swap(*locals_ref, old_locals);
+			locals_ref->emplace_back();
+		}
+		~NewLocalScopeHere() {
+			locals_ref->pop_back();
+			std::swap(*locals_ref, old_locals);
+		}
+	};
+	struct NewScopeHere {
+		LocalScope *local_scope;
+		explicit NewScopeHere(LocalScope *locals) : local_scope{locals} {
+			local_scope->emplace_back();
+		}
+		~NewScopeHere() {
+			local_scope->pop_back();
+		}
+	};
 	struct TopLevelFunction {
 		Namespace *ns;
 		const ast::top::Function *ast;
 		// returns std::nullopt if invalid
 		std::optional<type::Function> type(Base *base, std::span<type::Type> type_parameters) {
-			LocalScope old_locals(ns);
 			// when generating the template, return
 			// back to namespace of definition
-			std::swap(base->locals, old_locals);
-			base->locals.emplace_back();
+			NewLocalScopeHere nsh(ns, &base->locals);
 			std::vector<type::Type> type_arguments{};
 			for (const auto &[sindex, argument] : std::views::enumerate(ast->type_arguments)) {
 				const size_t index = sindex;
@@ -81,21 +102,13 @@ struct Base {
 			} catch (std::runtime_error &) {
 				result = std::nullopt;
 			}
-			base->locals.pop_back();
-			std::swap(base->locals, old_locals);
 			return result;
 		}
 		// returns std::nullopt if invalid, or if must_succeed is true, rethrows an error
 		std::optional<FunctionValue> value(Base *base, std::span<type::Type> type_parameters, const bool must_succeed = false) {
-			LocalScope old_locals(ns);
 			// when generating the template, return
 			// back to namespace of definition
-			std::swap(base->locals, old_locals);
-			base->locals.emplace_back();
-			auto cleanup = [&] {
-				base->locals.pop_back();
-				std::swap(base->locals, old_locals);
-			};
+			NewLocalScopeHere nsh(ns, &base->locals);
 			std::vector<type::Type> type_arguments{};
 			for (const auto &[sindex, argument] : std::views::enumerate(ast->type_arguments)) {
 				const size_t index = sindex;
@@ -104,12 +117,12 @@ struct Base {
 					type = type_parameters[index];
 				else if (argument.default_type)
 					type = base->visit(*argument.default_type);
-				if (!type)
+				if (!type) {
 					if (must_succeed) {
-						cleanup();
 						throw std::runtime_error(fmt("Missing type argument for function ", ast->location));
-					} else
-						return std::nullopt;
+					}
+					return std::nullopt;
+				}
 				type::Type argtype = std::move(*type);
 				base->locals.back().types.emplace(
 						argument.name, ConstantType{.name = argument.name, .type = argtype});
@@ -125,12 +138,10 @@ struct Base {
 				result = base->generate_function_value(*this, type);
 			} catch (...) {
 				if (must_succeed) {
-					cleanup();
 					std::rethrow_exception(std::current_exception());
 				}
 				result = std::nullopt;
 			}
-			cleanup();
 			return result;
 		}
 	};
@@ -153,12 +164,10 @@ struct Base {
 		const ast::top::Struct &ast;
 		naming::FullName name;
 	};
-	std::unordered_map<std::string, type::Type> named_struct_types;
+	utils::string_map<type::Type> named_struct_types;
 	type::Type get_type(const GenericStruct &generic_struct, std::span<type::Type> arguments) {
-		LocalScope old_locals(generic_struct.definition_ns);
 		// when generating the template, return back to namespace of definition
-		std::swap(locals, old_locals);
-		locals.emplace_back();
+		NewLocalScopeHere nsh(generic_struct.definition_ns, &locals);
 		std::vector<type::Type> type_arguments{};
 		for (const auto &[sindex, argument] : std::views::enumerate(generic_struct.ast.type_arguments)) {
 			const size_t index = sindex;
@@ -183,8 +192,6 @@ struct Base {
 		if (added)
 			for (const auto &[name, type] : generic_struct.ast.members)
 				result.members.emplace_back(name, visit(&type));
-		locals.pop_back();
-		std::swap(locals, old_locals);
 		return result;
 	}
 	using TypeTemplate = utils::variant<ConstantType, GenericStruct>;
@@ -195,19 +202,22 @@ struct Base {
 		bool can_contain_ambiguous = false;
 		explicit FunctionContainer(const bool can_contain_ambiguous = false) : can_contain_ambiguous{can_contain_ambiguous} {}
 		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
-			if (auto it = functions.find(name); it != functions.end()) {
-				std::optional<GetFunctionResult> result{};
-				for (auto &func : it->second)
-					if (auto type = func.type(base, type_parameters); type &&
-																	  std::ranges::equal(type->parameters, parameters))
-						if (auto value = func.value(base, type_parameters))
-							if (result)
-								throw std::runtime_error(fmt("Ambiguous function call for function '", name, "'; ", func.ast->location, " and ", result->tlf->ast->location, " both valid for this call"));
-							else
-								result = GetFunctionResult{&func, *type, *value};
-				return result;
+			auto it = functions.find(name);
+			if (it == functions.end())
+				return std::nullopt;
+			std::optional<GetFunctionResult> result;
+			for (auto &func : it->second) {
+				auto type = func.type(base, type_parameters);
+				if (!type || !std::ranges::equal(type->parameters, parameters))
+					continue;
+				auto value = func.value(base, type_parameters);
+				if (!value)
+					continue;
+				if (result && !can_contain_ambiguous)
+					throw std::runtime_error(fmt("Ambiguous function call for function '", name, "'; ", func.ast->location, " and ", result->tlf->ast->location, " both valid for this call"));
+				result = GetFunctionResult{&func, *type, *value};
 			}
-			return std::nullopt;
+			return result;
 		}
 		TopLevelFunction &emplace_function(Base *base, std::string_view string,
 										   Namespace *ns,
@@ -223,10 +233,9 @@ struct Base {
 			}
 			if (auto it = functions.find(string); it != functions.end())
 				return it->second.emplace_back(tlf);
-			else
-				return functions
-						.emplace(std::string(string), std::vector<TopLevelFunction>{})
-						.first->second.emplace_back(tlf);
+			return functions
+					.emplace(string, std::vector<TopLevelFunction>{})
+					.first->second.emplace_back(tlf);
 		}
 		TopLevelFunction &emplace_function(Base *base, TopLevelFunction tlf) {
 			const auto &string = tlf.ast->name.final.str;
@@ -242,7 +251,7 @@ struct Base {
 				return it->second.emplace_back(tlf);
 			else
 				return functions
-						.emplace(std::string(string), std::vector<TopLevelFunction>{})
+						.emplace(string, std::vector<TopLevelFunction>{})
 						.first->second.emplace_back(tlf);
 		}
 		TopLevelFunction &get_function_by_ast(Base *base, const ast::top::Function &ast) {
@@ -255,24 +264,24 @@ struct Base {
 		}
 
 	private:
-		utils::string_map<std::vector<TopLevelFunction>> functions{};
+		std::unordered_map<std::string_view, std::vector<TopLevelFunction>> functions{};
 	};
 
 	struct Scope : FunctionContainer {
-		using values_t = utils::string_map<Value>;
+		using values_t = std::unordered_map<std::string_view, Value>;
 		values_t values;
-		using types_t = utils::string_map<TypeTemplate>;
+		using types_t = std::unordered_map<std::string_view, TypeTemplate>;
 		types_t types;
 	};
 
 	struct Namespace : Scope {
 		Namespace *parent;
-		std::string name;
-		Namespace(Namespace *parent, const std::string &name) : parent{parent}, name{name} {}
-		std::unordered_map<std::string, Namespace> children;
+		std::string_view name;
+		Namespace(Namespace *parent, std::string_view name) : parent{parent}, name{name} {}
+		std::unordered_map<std::string_view, Namespace> children;
 
-		std::vector<std::string> path() {
-			std::vector<std::string> result;
+		std::vector<std::string_view> path() {
+			std::vector<std::string_view> result;
 			for (Namespace *current = this; current != nullptr;
 				 current = current->parent)
 				result.push_back(current->name);
@@ -409,10 +418,9 @@ struct Base {
 	}
 
 	void visit(const ast::Program &program) {
-		locals.emplace_back();
+		NewScopeHere nsh{&locals};
 		for (auto &top : program.tops)
 			visit(&top);
-		locals.pop_back();
 	}
 
 	void visit(const ast::top::Struct &ast) {
@@ -476,6 +484,11 @@ struct Base {
 		auto member = visit(array.member);
 		return type::Array{std::make_unique<type::Type>(member), array.size};
 	}
+	type::Type visit(const ast::type::Constant &constant) {
+		auto constanted = visit(constant.constanted);
+		constanted.is_const = true;
+		return constanted;
+	}
 	[[noreturn]] void visit(const std::monostate) {
 		throw std::runtime_error("unexpected empty AST node");
 	}
@@ -505,13 +518,9 @@ struct Base {
 		Namespace _new_ns{ns, ast.name.final.str};
 		ns = &ns->children.try_emplace(_new_ns.name, std::move(_new_ns))
 					  .first->second;
-		LocalScope old_locals(ns);
-		std::swap(locals, old_locals);
-		locals.emplace_back();
+		NewLocalScopeHere nlsh(ns, &locals);
 		for (auto &top : ast.tops)
 			visit(&top);
-		locals.pop_back();
-		std::swap(locals, old_locals);
 	}
 	void visit(const ast::StatementPtr &statement) { visit(statement.get()); }
 	void visit(const ast::StatementAst *statement) {
@@ -519,10 +528,9 @@ struct Base {
 				[&](const auto &statement) { visit(statement); });
 	}
 	void visit(const ast::stmt::Block &statement) {
-		locals.emplace_back();
+		NewScopeHere nsh{&locals};
 		for (const auto &stmt : statement.statements)
 			visit(&stmt);
-		locals.pop_back();
 	}
 	virtual void impl_visit(const ast::stmt::If &statement) = 0;
 	void visit(const ast::stmt::If &statement) {
@@ -530,9 +538,8 @@ struct Base {
 	}
 	virtual void impl_visit(const ast::stmt::For &statement) = 0;
 	void visit(const ast::stmt::For &statement) {
-		locals.emplace_back(); // init variable is local
+		NewScopeHere nsh{&locals}; // init variable is local
 		impl_visit(statement);
-		locals.pop_back();
 	}
 	virtual void impl_visit(const ast::stmt::While &statement) = 0;
 	void visit(const ast::stmt::While &statement) {
@@ -543,9 +550,10 @@ struct Base {
 		const auto value = deref(visit(statement.expr));
 		impl_return(value);
 	}
-	virtual void impl_visit(const ast::stmt::Expr &statement) = 0;
+	virtual void impl_expr_stmt(Value value, const ast::stmt::Expr &statement) = 0;
 	void visit(const ast::stmt::Expr &statement) {
-		impl_visit(statement);
+		auto value = visit(statement.expr);
+		impl_expr_stmt(value, statement);
 	}
 	virtual Value variable_ref_value(const ast::stmt::Variable &statement) = 0;
 	void visit(const ast::stmt::Variable &statement) {

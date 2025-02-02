@@ -73,7 +73,7 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 	llvm::Type *llvm_type(const type::Pointer &type) {
 		return llvm::PointerType::get(llvm_type(*type.pointed), 0);
 	}
-	std::unordered_map<std::string, llvm::Type *> named_struct_llvm_types;
+	utils::string_map<llvm::Type *> named_struct_llvm_types;
 	llvm::Type *llvm_type(const type::NamedStruct &type) {
 		auto name = type.mangle();
 		if (const auto it = named_struct_llvm_types.find(name); it != named_struct_llvm_types.end())
@@ -223,8 +223,8 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 	void impl_return(Value value) override {
 		builder->CreateRet(value.value);
 	}
-	void impl_visit(const ast::stmt::Expr &statement) override {
-		auto value = deref(visit(statement.expr));
+	void impl_expr_stmt(Value value, const ast::stmt::Expr &statement) override {
+		value = deref(value);
 		const char *format_str;
 		if (value.type == type::t_int32)
 			format_str = "\"%s\" => %d\n";
@@ -252,7 +252,7 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 				builder->CreateAlloca(llvm_type(type), nullptr, statement.name);
 		builder->CreateStore(value.value, alloc);
 		type.is_ref = true;
-		type.is_const = false;
+		type.is_const = statement.is_const;
 		return Value{type, alloc};
 	}
 
