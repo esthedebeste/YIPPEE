@@ -95,8 +95,12 @@ struct Base {
 			std::optional<type::Function> result{};
 			try {
 				std::vector<type::Type> args;
-				for (const ast::TypeAst &type : ast->parameters | std::views::values)
-					args.push_back(std::move(base->visit(&type)));
+				for (const ast::TypeAst &type : ast->parameters | std::views::values) {
+					auto param_type = base->visit(&type);
+					if (!param_type.is_ref)
+						param_type.is_const = true;
+					args.push_back(std::move(param_type));
+				}
 				const type::Type return_type = base->visit(ast->return_type);
 				result = type::Function{args, return_type};
 			} catch (std::runtime_error &) {
@@ -131,8 +135,12 @@ struct Base {
 			std::optional<FunctionValue> result{};
 			try {
 				std::vector<type::Type> args;
-				for (const auto &type : ast->parameters | std::views::values)
-					args.emplace_back(base->visit(&type));
+				for (const auto &type : ast->parameters | std::views::values) {
+					auto param_type = base->visit(&type);
+					if (!param_type.is_ref)
+						param_type.is_const = true;
+					args.push_back(std::move(param_type));
+				}
 				const type::Type return_type = base->visit(ast->return_type);
 				const type::Function type{args, return_type};
 				result = base->generate_function_value(*this, type);
@@ -1158,6 +1166,10 @@ struct Base {
 		}
 		std::string_view op_str = string(expr.op);
 		auto types = std::array{lvalue.type, rvalue.type};
+		if (!types[0].is_ref)
+			types[0].is_const = true;
+		if (!types[1].is_ref)
+			types[1].is_const = true;
 		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
 			std::array<UnderlyingValue, 2> args{lvalue.value, rvalue.value};
 			auto call = impl_call(function->type, function->value, args);
@@ -1243,8 +1255,12 @@ struct Base {
 	Value name_call(const ast::expr::Call &expr) {
 		const auto id = expr.callee->get<ast::expr::Identifier>();
 		std::vector<Value> args;
-		for (const auto &arg : expr.arguments)
-			args.push_back(visit(&arg));
+		for (const auto &arg : expr.arguments) {
+			auto value = visit(&arg);
+			if (!value.type.is_ref)
+				value.type.is_const = true;
+			args.push_back(std::move(value));
+		}
 		std::vector<type::Type> type_args;
 		for (const auto &arg : id.type_arguments)
 			type_args.push_back(visit(&arg));
@@ -1274,9 +1290,16 @@ struct Base {
 	}
 
 	Value visit(const ast::expr::MemberCall &expr) {
-		std::vector args{visit(expr.callee)};
-		for (const auto &arg : expr.arguments)
-			args.push_back(visit(&arg));
+		auto callee_value = visit(expr.callee);
+		if (!callee_value.type.is_ref)
+			callee_value.type.is_const = true;
+		std::vector args{std::move(callee_value)};
+		for (const auto &arg : expr.arguments) {
+			auto value = visit(&arg);
+			if (!value.type.is_ref)
+				value.type.is_const = true;
+			args.push_back(std::move(value));
+		}
 		std::vector<type::Type> type_args;
 		for (const auto &arg : expr.type_arguments)
 			type_args.push_back(visit(&arg));
@@ -1399,8 +1422,6 @@ struct Base {
 				auto member_type = type;
 				member_type.is_ref = true;
 				member_type.is_const = value.type.is_const;
-				auto unref_value_type = value.type;
-				unref_value_type.is_ref = false;
 				return Value{member_type, impl_member(named, value.value, index)};
 			}
 		}
