@@ -42,7 +42,9 @@ fun take(s: SelfReferential): int32 {
     return 0;
 }
 
-namespace C {}
+namespace C {
+    extern fun abs(n: int32): int32;
+}
 fun C::main(): int32 {
 	1;                                                        // 1
 	8;                                                        // 8
@@ -103,6 +105,8 @@ fun C::main(): int32 {
     iterative_fibonacci(20);                                  // 6765
     iterative_fibonacci(46);                                  // 1836311903
     iterative_fibonacci<uint64>(93 as uint64);                // 12200160415121876738
+                                                              //
+    C::abs(-20);                                              // 20
                                                               //
 	return 0;                                                 //
 }

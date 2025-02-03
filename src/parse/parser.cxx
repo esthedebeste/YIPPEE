@@ -60,7 +60,7 @@ struct Parser : reader::Reader {
 			return std::nullopt;
 		return take_first([&]() -> std::optional<Variant> {
 			Parser clone = *this;
-			if (auto res = std::invoke(ts, clone); res) {
+			if (auto res = (clone.*ts)(); res) {
 				*this = clone;
 				return Variant(*res);
 			}
@@ -945,6 +945,8 @@ struct Parser : reader::Reader {
 	}
 	std::optional<ast::top::Function> parse_function() {
 		const auto loc_start = get_loc();
+		bool is_external = keyword("extern");
+		ws();
 		if (!keyword("fun"))
 			return std::nullopt;
 		must_ws();
@@ -952,7 +954,9 @@ struct Parser : reader::Reader {
 		if (!identifier)
 			error("Expected function name");
 		ws();
-		auto type_arguments = parse_type_arguments_declaration();
+		std::vector<ast::TypeArgument> type_arguments{};
+		if (!is_external)
+			type_arguments = parse_type_arguments_declaration();
 		ws();
 		expect("(");
 		std::vector<ast::top::Function::Parameter> parameters{};
@@ -979,13 +983,20 @@ struct Parser : reader::Reader {
 		if (!return_type)
 			error("Expected return type");
 		ws();
+		if (is_external) {
+			expect(";");
+			return std::make_optional(ast::top::Function(
+					get_range(loc_start), std::move(*identifier), std::move(type_arguments), std::move(parameters),
+					std::make_unique<ast::TypeAst>(std::move(*return_type)),
+					std::nullopt));
+		}
 		auto body = parse_block();
 		if (!body)
 			error("Expected function body block");
 		return std::make_optional(ast::top::Function(
 				get_range(loc_start), std::move(*identifier), std::move(type_arguments), std::move(parameters),
 				std::make_unique<ast::TypeAst>(std::move(*return_type)),
-				std::make_unique<ast::StatementAst>(std::move(*body))));
+				std::make_optional(std::make_unique<ast::StatementAst>(std::move(*body)))));
 	}
 	std::optional<ast::top::Struct> parse_struct() {
 		const auto loc_start = get_loc();

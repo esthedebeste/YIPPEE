@@ -35,6 +35,9 @@
 				"name": "keyword.operator.new.yippee",
 				"match": "\\b(create)\\b"
 			}, {
+				"name": "storage.modifier.yippee",
+				"match": "\\b(const|extern)\\b"
+			}, {
 				"name": "storage.type.struct.yippee",
 				"match": "\\b(struct)\\b"
 			}, {

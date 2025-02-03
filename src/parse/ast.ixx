@@ -344,11 +344,11 @@ export struct Function final : AstBase {
 	using Parameter = std::pair<Name, TypeAst>;
 	std::vector<Parameter> parameters;
 	std::unique_ptr<TypeAst> return_type;
-	std::unique_ptr<StatementAst> statement;
+	std::optional<std::unique_ptr<StatementAst>> statement;
 	Function(const Range &location, Identifier name,
 			 std::vector<TypeArgument> type_arguments,
 			 std::vector<Parameter> parameters, std::unique_ptr<TypeAst> return_type,
-			 std::unique_ptr<StatementAst> statement);
+			 std::optional<std::unique_ptr<StatementAst>> statement);
 	Function(const Function &other);
 	Function(Function &&other) noexcept;
 	Function &operator=(const Function &other);

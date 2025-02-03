@@ -113,25 +113,30 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		return llvm::BasicBlock::Create(llvm_context, name, parent, insert_before);
 	}
 	llvm::Value *generate_function_value(const TopLevelFunction &tlf, const type::Function &type, std::string mangled_name) override {
-		const auto pre_generate_insert_point = builder->GetInsertBlock(); // save the caller's insert point
 		const auto &function = *tlf.ast;
-		NewScopeHere nsh_preargs{&locals};
-		if (auto fn = mod->getFunction(mangled_name))
+		if (const auto fn = mod->getFunction(mangled_name))
 			return fn; // already generated
 		auto c = mod->getOrInsertFunction(
 				mangled_name, llvm::cast<llvm::FunctionType>(llvm_type(type)));
 		const auto llvmfn = llvm::cast<llvm::Function>(c.getCallee());
+		for (const auto &[astarg, llvmarg] : std::views::zip(
+					 function.parameters, llvmfn->args()))
+			llvmarg.setName(astarg.first.str);
+		if (!function.statement) {
+			// extern fun :)
+			return llvmfn;
+		}
+		const auto pre_generate_insert_point = builder->GetInsertBlock(); // save the caller's insert point
+		NewScopeHere nsh_preargs{&locals};
 		if (!tlf.ast->type_arguments.empty())
 			llvmfn->setLinkage(llvm::GlobalValue::LinkOnceODRLinkage); // template functions are linkonce_odr
 		const auto entry = create_block(llvmfn, "entry");
 		builder->SetInsertPoint(entry);
 		for (const auto &[astarg, typarg, llvmarg] : std::views::zip(
-					 function.parameters, type.parameters, llvmfn->args())) {
+					 function.parameters, type.parameters, llvmfn->args()))
 			if (typarg.is_ref) {
-				llvmarg.setName(astarg.first.str);
 				locals.back().values.emplace(astarg.first.str, Value{typarg, &llvmarg});
 			} else { // turn it into a reference
-				llvmarg.setName(astarg.first.str);
 				auto alloc =
 						builder->CreateAlloca(llvm_type(typarg), nullptr, astarg.first.str);
 				builder->CreateStore(&llvmarg, alloc);
@@ -139,9 +144,8 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 				argtype.is_ref = true;
 				locals.back().values.emplace(astarg.first.str, Value{argtype, alloc});
 			}
-		}
 		NewScopeHere nsh_postargs{&locals};
-		visit(function.statement);
+		visit(*function.statement);
 		// restore to the caller's insert point
 		builder->SetInsertPoint(pre_generate_insert_point);
 		return llvmfn;

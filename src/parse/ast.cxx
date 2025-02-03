@@ -439,7 +439,7 @@ namespace top {
 Function::Function(const Range &location, Identifier name,
 				   std::vector<TypeArgument> type_arguments,
 				   std::vector<Parameter> parameters, TypePtr return_type,
-				   StatementPtr statement)
+				   std::optional<StatementPtr> statement)
 	: AstBase(location), name{std::move(name)},
 	  type_arguments(std::move(type_arguments)),
 	  parameters(std::move(parameters)), return_type{std::move(return_type)},
@@ -466,10 +466,14 @@ void Function::children(children_cb cb) const {
 		cb(&param.first);
 		cb(to_ast_base(&param.second));
 	}
-	cb(to_ast_base(statement.get()));
+	if (statement)
+		cb(to_ast_base(statement->get()));
 }
 void Function::summarize(std::ostream &os) const {
-	os << "Function(" << name << ')';
+	os << "Function(";
+	if (!statement)
+		os << "extern, ";
+	os << name << ')';
 }
 Namespace::Namespace(const Range &location, const Identifier &name,
 					 const std::vector<TopLevelAst> &tops)
