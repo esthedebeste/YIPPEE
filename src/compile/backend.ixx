@@ -111,8 +111,7 @@ struct Base {
 			}
 			return result;
 		}
-		// returns std::nullopt if invalid, or if must_succeed is true, rethrows an error
-		std::optional<FunctionValue> value(Base *base, std::span<type::Type> type_parameters, const bool must_succeed = false) {
+		FunctionValue value(Base *base, std::span<type::Type> type_parameters) {
 			// when generating the template, return
 			// back to namespace of definition
 			NewLocalScopeHere nsh(ns, &base->locals);
@@ -125,44 +124,32 @@ struct Base {
 				else if (argument.default_type)
 					type = base->visit(*argument.default_type);
 				if (!type) {
-					if (must_succeed) {
-						throw std::runtime_error(fmt("Missing type argument for function ", ast->location));
-					}
-					return std::nullopt;
+					throw std::runtime_error(fmt("Missing type argument for function ", ast->location));
 				}
 				type::Type argtype = std::move(*type);
 				base->locals.back().types.emplace(
 						argument.name, ConstantType{.name = argument.name, .type = argtype});
 				type_arguments.push_back(argtype);
 			}
-			std::optional<FunctionValue> result{};
-			try {
-				std::vector<type::Type> args;
-				for (const auto &type : ast->parameters | std::views::values) {
-					auto param_type = base->visit(&type);
-					if (!param_type.is_ref)
-						param_type.is_const = true;
-					args.push_back(std::move(param_type));
-				}
-				const type::Type return_type = base->visit(ast->return_type);
-				const type::Function type{args, return_type};
-				std::string mangled_name;
-				if (ns->name == "C" && ns->parent == &base->root_namespace) {
-					// namespace ::C
-					mangled_name = ast->name.final.str;
-				} else {
-					const naming::FullName name{ns->path(), ast->name.final.str};
-					mangled_name = name.mangle();
-					mangled_name += type.mangle();
-				}
-				result = base->generate_function_value(*this, type, std::move(mangled_name));
-			} catch (...) {
-				if (must_succeed) {
-					std::rethrow_exception(std::current_exception());
-				}
-				result = std::nullopt;
+			std::vector<type::Type> args;
+			for (const auto &type : ast->parameters | std::views::values) {
+				auto param_type = base->visit(&type);
+				if (!param_type.is_ref)
+					param_type.is_const = true;
+				args.push_back(std::move(param_type));
 			}
-			return result;
+			const type::Type return_type = base->visit(ast->return_type);
+			const type::Function type{args, return_type};
+			std::string mangled_name;
+			if (ns->name == "C" && ns->parent == &base->root_namespace) {
+				// namespace ::C
+				mangled_name = ast->name.final.str;
+			} else {
+				const naming::FullName name{ns->path(), ast->name.final.str};
+				mangled_name = name.mangle();
+				mangled_name += type.mangle();
+			}
+			return base->generate_function_value(*this, type, std::move(mangled_name));
 		}
 	};
 	struct GetFunctionResult {
@@ -237,11 +224,9 @@ struct Base {
 				if (!type || !std::ranges::equal(type->parameters, parameters))
 					continue;
 				auto value = func.value(base, type_parameters);
-				if (!value)
-					continue;
 				if (result && ambiguity != Ambiguity::Allowed)
 					throw std::runtime_error(fmt("Ambiguous function call for function '", name, "'; ", func.ast->location, " and ", result->tlf->ast->location, " both valid for this call"));
-				result = GetFunctionResult{&func, *type, *value};
+				result = GetFunctionResult{&func, *type, value};
 			}
 			return result;
 		}
@@ -535,7 +520,7 @@ struct Base {
 		} else {
 			auto &tlf = ns->get_function_by_ast(this, function);
 			if (function.type_arguments.empty())
-				tlf.value(this, {}, true); // always compile non-templated functions
+				tlf.value(this, {}); // always compile non-templated functions
 		}
 	}
 	void visit(const ast::top::Namespace &ast) {
