@@ -1,0 +1,108 @@
+fun wrapped_five(): Wrap<int32> {
+	return create Wrap<int32> { value: 5 };
+} // look! position independence! wowie!
+
+struct Wrap<T> {
+ 	value: T,
+}
+
+namespace test_ns {
+    fun other(): int32 {
+        return 12345;
+    }
+
+    fun other(argument: int32): int32 {
+        return 18107 * argument;
+    }
+}
+
+fun fibonacci(n: int32): int32 {
+    if(n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+fun iterative_fibonacci<NT = int32>(n: NT): NT {
+   x := 0 as NT;
+   y := 1 as NT;
+   for i := 1 as NT; i < n; i = i + (1 as NT) {
+      const temp := x + y;
+      _1 := x = y;
+      _2 := y = temp;
+   }
+   return y;
+}
+
+struct SelfReferential {
+    next: SelfReferential*,
+}
+
+fun take(s: SelfReferential): int32 {
+    return 0;
+}
+
+namespace C {}
+fun C::main(): int32 {
+	1;                                                        // 1
+	8;                                                        // 8
+	2 / 3 + 5 * 7 + 1 >> 1;                                   // 18
+	variable: int32 = 2;                                      //
+	variable = 3 * variable;                                  // 6
+	variable = 4 + variable;                                  // 10
+	variable = 1;											  // 1
+															  //
+	test_ns::other();										  // 12345
+	test_ns::other(3);										  // 54321
+	30.other();							    				  // 543210
+															  //
+	untyped := 9;											  //
+	untyped = untyped * 10;									  // 90
+	untyped = untyped * -1;									  // -90
+	positive := untyped < 0 ? -1 : 1;						  //
+	positive;												  // -1
+	positive == -1 ? untyped = untyped * -1 : untyped;		  // 90
+															  //
+	1 <= 2 <= 3 <= 4 && 4 > 3 > 2;							  // 1
+	wrapfive := wrapped_five();								  //
+	wrapfive.value;											  // 5
+	if wrapfive.value == 5 {								  //
+	    wrapfive.value = 6;									  // 6
+    }														  //
+                                                              //
+	for thing := 0; thing < 3; thing = thing + 1 {            //
+        thing;												  // 0 1 2
+    }														  //
+    thing := 12;                                              //
+    while thing < 15 {                                        //
+        thing = thing + 1;                                    // 13 14 15
+    }                                                         //
+                                                              //
+    const pair := pair_of_things();                           //
+    pair.first;                                               // 1
+    pair.second;                                              // 2
+                                                              //
+    const array: int32[3] = [1, 2, 3];                        //
+    array[0];                                                 // 1
+    array[1];                                                 // 2
+    array[2];                                                 // 3
+                                                              //
+    const generic_pair := pair_of<int32>(71, 70);             //
+    generic_pair.first;                                       // 71
+    generic_pair.second;                                      // 70
+                                                              //
+    const exact_same_generic_pair := pair_of<int32, int32>(71, 70); //
+    exact_same_generic_pair.first;                            // 71
+    exact_same_generic_pair.second;                           // 70
+                                                              //
+    const added := generic_pair + exact_same_generic_pair + pair; //
+    added.first;                                              // 143
+    added.second;                                             // 142
+                                                              //
+    fibonacci(20);                                            // 6765
+    iterative_fibonacci(20);                                  // 6765
+    iterative_fibonacci(46);                                  // 1836311903
+    iterative_fibonacci<uint64>(93 as uint64);                // 12200160415121876738
+                                                              //
+	return 0;                                                 //
+}
