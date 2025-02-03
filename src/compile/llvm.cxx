@@ -112,23 +112,10 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 				 llvm::BasicBlock *insert_before = nullptr) const {
 		return llvm::BasicBlock::Create(llvm_context, name, parent, insert_before);
 	}
-	llvm::Value *generate_function_value(const TopLevelFunction &tlf, const type::Function &type) override {
+	llvm::Value *generate_function_value(const TopLevelFunction &tlf, const type::Function &type, std::string mangled_name) override {
 		const auto pre_generate_insert_point = builder->GetInsertBlock(); // save the caller's insert point
-		auto ns = tlf.ns;
 		const auto &function = *tlf.ast;
-		naming::FullName name{ns->path(), function.name.final.str};
-		// LocalScope old_locals(ns);
-		// std::swap(locals, old_locals); // save the caller's locals // TopLevelFunction::value already does this and is this function's only caller. it also sets up template arguments into locals.
-		locals.emplace_back(); // preargs
-		auto mangled_name = name.mangle() + type.mangle();
-		if (name == naming::FullName{{root_namespace.name}, "main"} &&
-			*type.return_type == type::t_int32) {
-			// int main is special <3 until we eventually
-			// change it and probably have a YIPPEE-universal
-			// main function to make args a little nicer
-			mangled_name = "main";
-		}
-
+		NewScopeHere nsh_preargs{&locals};
 		if (auto fn = mod->getFunction(mangled_name))
 			return fn; // already generated
 		auto c = mod->getOrInsertFunction(
@@ -153,12 +140,8 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 				locals.back().values.emplace(astarg.first.str, Value{argtype, alloc});
 			}
 		}
-		locals.emplace_back(); // postargs
+		NewScopeHere nsh_postargs{&locals};
 		visit(function.statement);
-		// locals.pop_back(); // postargs
-		// locals.pop_back(); // preargs
-		// restore to the caller's locals
-		// std::swap(locals, old_locals);
 		// restore to the caller's insert point
 		builder->SetInsertPoint(pre_generate_insert_point);
 		return llvmfn;

@@ -36,6 +36,9 @@ bool operator==(const std::vector<T> &vector, std::span<T> span) {
 export namespace backend {
 template<class Child, class UnderlyingValue, class FunctionValue>
 struct Base {
+	Base() {
+		root_namespace.children.emplace("C", Namespace{Ambiguity::NoDuplicateName, &root_namespace, "C"});
+	}
 	virtual ~Base() = default;
 
 	bool type_pass = true;
@@ -45,7 +48,7 @@ struct Base {
 		UnderlyingValue value;
 	};
 	struct TopLevelFunction;
-	virtual FunctionValue generate_function_value(const TopLevelFunction &tlf, const type::Function &type) = 0;
+	virtual FunctionValue generate_function_value(const TopLevelFunction &tlf, const type::Function &type, std::string mangled_name) = 0;
 	struct LocalScope;
 	struct Namespace;
 	struct NewLocalScopeHere {
@@ -143,7 +146,16 @@ struct Base {
 				}
 				const type::Type return_type = base->visit(ast->return_type);
 				const type::Function type{args, return_type};
-				result = base->generate_function_value(*this, type);
+				std::string mangled_name;
+				if (ns->name == "C" && ns->parent == &base->root_namespace) {
+					// namespace ::C
+					mangled_name = ast->name.final.str;
+				} else {
+					const naming::FullName name{ns->path(), ast->name.final.str};
+					mangled_name = name.mangle();
+					mangled_name += type.mangle();
+				}
+				result = base->generate_function_value(*this, type, std::move(mangled_name));
 			} catch (...) {
 				if (must_succeed) {
 					std::rethrow_exception(std::current_exception());
@@ -206,9 +218,15 @@ struct Base {
 	type::Type get_type(const TypeTemplate &type_template, std::span<type::Type> arguments) {
 		return type_template.visit([&](const auto &t) { return get_type(t, arguments); });
 	}
+	enum struct Ambiguity : uint8_t {
+		Allowed,
+		NoDuplicateSignature,
+		NoDuplicateName,
+	};
 	struct FunctionContainer {
-		bool can_contain_ambiguous = false;
-		explicit FunctionContainer(const bool can_contain_ambiguous = false) : can_contain_ambiguous{can_contain_ambiguous} {}
+		Ambiguity ambiguity;
+		explicit FunctionContainer(Ambiguity ambiguity)
+			: ambiguity{ambiguity} {}
 		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
 			auto it = functions.find(name);
 			if (it == functions.end())
@@ -221,7 +239,7 @@ struct Base {
 				auto value = func.value(base, type_parameters);
 				if (!value)
 					continue;
-				if (result && !can_contain_ambiguous)
+				if (result && ambiguity != Ambiguity::Allowed)
 					throw std::runtime_error(fmt("Ambiguous function call for function '", name, "'; ", func.ast->location, " and ", result->tlf->ast->location, " both valid for this call"));
 				result = GetFunctionResult{&func, *type, *value};
 			}
@@ -231,36 +249,39 @@ struct Base {
 										   Namespace *ns,
 										   const ast::top::Function *ast) {
 			TopLevelFunction tlf{ns, ast};
-			if (ast->type_arguments.empty()) {
+			if (ambiguity == Ambiguity::NoDuplicateSignature && ast->type_arguments.empty()) {
 				std::vector<type::Type> parameters;
 				for (const auto &param : ast->parameters | std::views::values)
 					parameters.push_back(base->visit(&param));
-				if (!can_contain_ambiguous)
-					if (auto func = get_function(base, string, {}, parameters))
-						throw std::runtime_error(fmt("Function already exists with the same signature - ", ast->location, " and ", func->tlf->ast->location));
+				if (auto func = get_function(base, string, {}, parameters))
+					throw std::runtime_error(fmt("Function already exists with the same signature - ", ast->location, " and ", func->tlf->ast->location));
 			}
-			if (auto it = functions.find(string); it != functions.end())
+			if (auto it = functions.find(string); it != functions.end()) {
+				if (ambiguity == Ambiguity::NoDuplicateName && it->second.size() != 0)
+					throw std::runtime_error(fmt("Function already exists with the same name - ", ast->location, " and ", it->second[0].ast->location));
 				return it->second.emplace_back(tlf);
+			}
 			return functions
 					.emplace(string, std::vector<TopLevelFunction>{})
 					.first->second.emplace_back(tlf);
 		}
 		TopLevelFunction &emplace_function(Base *base, TopLevelFunction tlf) {
 			const auto &string = tlf.ast->name.final.str;
-			if (tlf.ast->type_arguments.empty()) {
+			if (ambiguity == Ambiguity::NoDuplicateSignature && tlf.ast->type_arguments.empty()) {
 				std::vector<type::Type> parameters;
 				for (const auto &param : tlf.ast->parameters | std::views::values)
 					parameters.push_back(base->visit(&param));
-				if (!can_contain_ambiguous)
-					if (auto func = get_function(base, string, {}, parameters))
-						throw std::runtime_error(fmt("Function already exists with the same signature - ", tlf.ast->location, " and ", func->tlf->ast->location));
+				if (auto func = get_function(base, string, {}, parameters))
+					throw std::runtime_error(fmt("Function already exists with the same signature - ", tlf.ast->location, " and ", func->tlf->ast->location));
 			}
-			if (auto it = functions.find(string); it != functions.end())
+			if (auto it = functions.find(string); it != functions.end()) {
+				if (ambiguity == Ambiguity::NoDuplicateName && it->second.size() != 0)
+					throw std::runtime_error(fmt("Function already exists with the same name - ", tlf.ast->location, " and ", it->second[0].ast->location));
 				return it->second.emplace_back(tlf);
-			else
-				return functions
-						.emplace(string, std::vector<TopLevelFunction>{})
-						.first->second.emplace_back(tlf);
+			}
+			return functions
+					.emplace(string, std::vector<TopLevelFunction>{})
+					.first->second.emplace_back(tlf);
 		}
 		TopLevelFunction &get_function_by_ast(Base *base, const ast::top::Function &ast) {
 			const auto &string = ast.name.final.str;
@@ -277,15 +298,17 @@ struct Base {
 
 	struct Scope : FunctionContainer {
 		using values_t = std::unordered_map<std::string_view, Value>;
-		values_t values;
+		values_t values{};
 		using types_t = std::unordered_map<std::string_view, TypeTemplate>;
-		types_t types;
+		types_t types{};
+		explicit Scope(Ambiguity ambiguity) : FunctionContainer{ambiguity} {}
+		Scope() : FunctionContainer{Ambiguity::NoDuplicateSignature} {};
 	};
 
 	struct Namespace : Scope {
 		Namespace *parent;
 		std::string_view name;
-		Namespace(Namespace *parent, std::string_view name) : parent{parent}, name{name} {}
+		Namespace(Ambiguity ambiguity, Namespace *parent, std::string_view name) : Scope{ambiguity}, parent{parent}, name{name} {}
 		std::unordered_map<std::string_view, Namespace> children;
 
 		std::vector<std::string_view> path() {
@@ -414,9 +437,9 @@ struct Base {
 		}
 	};
 
-	Namespace root_namespace{nullptr, "YIPPEE"};
+	Namespace root_namespace{Ambiguity::NoDuplicateSignature, nullptr, "YIPPEE"};
 	LocalScope locals{&root_namespace};
-	FunctionContainer all_function_container{true};
+	FunctionContainer all_function_container{Ambiguity::Allowed};
 
 	type::Function function_type(const ast::top::Function &function) {
 		std::vector<type::Type> args;
@@ -519,11 +542,11 @@ struct Base {
 		Namespace *ns = locals.ns;
 		// make every part of the namespace
 		for (auto &part : ast.name.parts) {
-			Namespace new_ns{ns, part.str};
+			Namespace new_ns{Ambiguity::NoDuplicateSignature, ns, part.str};
 			ns = &ns->children.try_emplace(new_ns.name, std::move(new_ns))
 						  .first->second;
 		}
-		Namespace _new_ns{ns, ast.name.final.str};
+		Namespace _new_ns{Ambiguity::NoDuplicateSignature, ns, ast.name.final.str};
 		ns = &ns->children.try_emplace(_new_ns.name, std::move(_new_ns))
 					  .first->second;
 		NewLocalScopeHere nlsh(ns, &locals);
