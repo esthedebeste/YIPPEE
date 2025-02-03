@@ -82,8 +82,8 @@ struct Parser : reader::Reader {
 	[[nodiscard]] ast::Location get_loc() const {
 		return ast::Location(filename, line, column, index());
 	}
-	[[nodiscard]] ast::Range get_range(ast::Location start) const {
-		ast::Location end = get_loc();
+	[[nodiscard]] ast::Range get_range(const ast::Location &start) const {
+		const ast::Location end = get_loc();
 		return ast::Range(start, end, source.substr(start.index, end.index - start.index));
 	}
 

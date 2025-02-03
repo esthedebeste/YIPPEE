@@ -40,7 +40,7 @@ export struct Range {
 export std::ostream &operator<<(std::ostream &os, const Range &range) {
 	const auto &[start, end, content] = range;
 	return os << '(' << start.file << ':' << start.line << ':'
-			  << start.column << ':' << start.line << ':' << start.column << ')';
+			  << start.column << ':' << end.line << ':' << end.column << ')';
 }
 export struct AstBase {
 	Range location;
