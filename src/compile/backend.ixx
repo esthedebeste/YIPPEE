@@ -573,14 +573,11 @@ struct Base {
 	}
 	void visit(const ast::stmt::Variable &statement) {
 		auto &values = locals.back().values;
-		if (values.contains(statement.name))
-			throw std::runtime_error(fmt("Variable '", statement.name,
-										 "' already defined ", statement.location));
 		auto value = mkref(deref(visit(statement.expr)));
 		value.type = statement.type ? visit(*statement.type) : value.type;
 		value.type.is_ref = true;
 		value.type.is_const = statement.is_const;
-		values.emplace(statement.name, value);
+		values.insert_or_assign(statement.name, value);
 	}
 
 	Value visit(const ast::ExprPtr &expr) { return visit(expr.get()); }

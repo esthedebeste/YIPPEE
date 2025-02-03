@@ -28,8 +28,8 @@ fun iterative_fibonacci<NT = int32>(n: NT): NT {
    y := 1 as NT;
    for i := 1 as NT; i < n; i = i + (1 as NT) {
       const temp := x + y;
-      _1 := x = y;
-      _2 := y = temp;
+      _ := x = y;
+      _ := y = temp;
    }
    return y;
 }
@@ -107,6 +107,10 @@ fun C::main(): int32 {
     iterative_fibonacci<uint64>(93 as uint64);                // 12200160415121876738
                                                               //
     C::abs(-20);                                              // 20
+                                                              //
+    const a := 2;                                             //
+    const a := (a + 1) as uint64;                             //
+    a;                                                        // 3
                                                               //
 	return 0;                                                 //
 }
