@@ -39,6 +39,7 @@ IndentCaseLabels: true
 IndentPPDirectives: None
 IndentWidth: 4
 KeepEmptyLinesAtTheStartOfBlocks: true
+LambdaBodyIndentation: OuterScope
 LineEnding: LF
 MaxEmptyLinesToKeep: 2
 NamespaceIndentation: None

@@ -150,62 +150,38 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		builder->SetInsertPoint(pre_generate_insert_point);
 		return llvmfn;
 	}
-	void impl_visit(const ast::stmt::If &statement) override {
+	// used through CRTP - "maybe_unused" to prevent IDE auto-refactor
+	[[maybe_unused]] void impl_if(llvm::Value *condition, auto then, auto otherwise) {
 		const auto true_block = create_block("true");
 		const auto false_block = create_block("false");
 		const auto end_block = create_block();
-		const auto condition = visit(statement.condition);
-		builder->CreateCondBr(condition.value, true_block, false_block);
+		builder->CreateCondBr(condition, true_block, false_block);
 		builder->SetInsertPoint(true_block);
-		visit(statement.then);
+		then();
 		builder->CreateBr(end_block);
 		builder->SetInsertPoint(false_block);
-		if (statement.otherwise)
-			visit(*statement.otherwise);
+		otherwise();
 		builder->CreateBr(end_block);
 		end_block->moveAfter(builder->GetInsertBlock());
 		builder->SetInsertPoint(end_block);
 	}
-	void impl_visit(const ast::stmt::For &statement) override {
-		const auto init_block = create_block("forinit");
-		const auto end_block = create_block("forend");
-		builder->CreateBr(init_block);
-		builder->SetInsertPoint(init_block);
-		if (statement.init)
-			visit(*statement.init);
-		const auto cond_block = create_block("forcond");
-		builder->CreateBr(cond_block);
-		builder->SetInsertPoint(cond_block);
-		const auto condition =
-				statement.cond
-						? visit(*statement.cond)
-						: Value{type::boolean, llvm::ConstantInt::getTrue(llvm_context)};
-		const auto body_block = create_block("forbody");
-		builder->CreateCondBr(condition.value, body_block, end_block);
-		builder->SetInsertPoint(body_block);
-		visit(statement.body);
-		const auto incr_block = create_block("forincr");
-		builder->CreateBr(incr_block);
-		builder->SetInsertPoint(incr_block);
-		if (statement.incr)
-			visit(*statement.incr);
-		builder->CreateBr(cond_block);
-		end_block->moveAfter(builder->GetInsertBlock());
-		builder->SetInsertPoint(end_block);
-	}
-	void impl_visit(const ast::stmt::While &statement) override {
+	// used through CRTP - "maybe_unused" to prevent IDE auto-refactor
+	[[maybe_unused]] void impl_while(auto condition, auto body) {
 		const auto cond_block = create_block("whilecond");
 		const auto end_block = create_block("whileend");
 		builder->CreateBr(cond_block);
 		builder->SetInsertPoint(cond_block);
-		const auto condition = visit(statement.expr);
+		llvm::Value *cond_val = condition();
 		const auto body_block = create_block("whilebody");
-		builder->CreateCondBr(condition.value, body_block, end_block);
+		builder->CreateCondBr(cond_val, body_block, end_block);
 		builder->SetInsertPoint(body_block);
-		visit(statement.body);
+		body();
 		builder->CreateBr(cond_block);
 		end_block->moveAfter(builder->GetInsertBlock());
 		builder->SetInsertPoint(end_block);
+	}
+	llvm::Value *get_bool_value(bool value) override {
+		return llvm::ConstantInt::getBool(llvm_context, value);
 	}
 	void impl_return(Value value) override {
 		builder->CreateRet(value.value);
@@ -236,7 +212,7 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 
 	/// If value is NOT a reference, returns it.
 	/// Otherwise, `load` and returns this value.
-	llvm::Value *impl_deref(type::Type when_loaded, llvm::Value *ref) override {
+	llvm::Value *impl_deref(const type::Type &when_loaded, llvm::Value *ref) override {
 		return builder->CreateLoad(llvm_type(when_loaded), ref, "tmp");
 	}
 	/// Store the value on the stack, return a pointer to that value.
@@ -251,9 +227,10 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		builder->CreateStore(rvalue.value, lvalue.value);
 	}
 
-#define UNARY_IMPL_FUNCTION(name, operation)           \
-	llvm::Value *name(llvm::Value *operand) override { \
-		return builder->operation(operand, "tmp");     \
+	// used through CRTP - "maybe_unused" to prevent IDE auto-refactor
+#define UNARY_IMPL_FUNCTION(name, operation)                   \
+	[[maybe_unused]] llvm::Value *name(llvm::Value *operand) { \
+		return builder->operation(operand, "tmp");             \
 	}
 
 	UNARY_IMPL_FUNCTION(unary_b_not_u8, CreateNot)
@@ -282,9 +259,10 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 #undef UNARY_IMPL_FUNCTION
 
 
-#define BINARY_IMPL_FUNCTION(name, operation)                        \
-	llvm::Value *name(llvm::Value *lhs, llvm::Value *rhs) override { \
-		return builder->operation(lhs, rhs, "tmp");                  \
+	// used through CRTP - "maybe_unused" to prevent IDE auto-refactor
+#define BINARY_IMPL_FUNCTION(name, operation)                                \
+	[[maybe_unused]] llvm::Value *name(llvm::Value *lhs, llvm::Value *rhs) { \
+		return builder->operation(lhs, rhs, "tmp");                          \
 	}
 
 
@@ -398,13 +376,15 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 	BINARY_IMPL_FUNCTION(binary_mod_float, CreateFRem)
 	BINARY_IMPL_FUNCTION(binary_mod_double, CreateFRem)
 
-	llvm::Value *binary_pow_float(llvm::Value *lhs, llvm::Value *rhs) override {
+	// used through CRTP - "maybe_unused" to prevent IDE auto-refactor
+	[[maybe_unused]] llvm::Value *binary_pow_float(llvm::Value *lhs, llvm::Value *rhs) {
 		const auto ty = llvm::Type::getFloatTy(llvm_context);
 		return builder->CreateCall(
 				mod->getOrInsertFunction("llvm.pow.f32", ty, ty, ty),
 				{lhs, rhs}, "tmp");
 	}
-	llvm::Value *binary_pow_double(llvm::Value *lhs, llvm::Value *rhs) override {
+	// used through CRTP - "maybe_unused" to prevent IDE auto-refactor
+	[[maybe_unused]] llvm::Value *binary_pow_double(llvm::Value *lhs, llvm::Value *rhs) {
 		const auto ty = llvm::Type::getDoubleTy(llvm_context);
 		return builder->CreateCall(
 				mod->getOrInsertFunction("llvm.pow.f64", ty, ty, ty),
@@ -439,19 +419,19 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		phi->addIncoming(right.value, right_bb);
 		return Value{type::boolean, phi};
 	}
-	llvm::Value *impl_call(type::Function type, llvm::Value *fn, std::span<llvm::Value *> values) override {
+	llvm::Value *impl_call(const type::Function &type, llvm::Value *fn, std::span<llvm::Value *> values) override {
 		const llvm::ArrayRef args{values.data(), values.size()};
 		return builder->CreateCall(llvm::cast<llvm::FunctionType>(llvm_type(type)),
 								   fn, args, "tmp");
 	}
-	llvm::Value *impl_value_call(type::Function type, llvm::Value *fn, std::span<llvm::Value *> values) override {
+	llvm::Value *impl_value_call(const type::Function &type, llvm::Value *fn, std::span<llvm::Value *> values) override {
 		return impl_call(type, fn, values);
 	}
 
 
-#define COMPARE_IMPL_FUNCTION(name, operation)                       \
-	llvm::Value *name(llvm::Value *lhs, llvm::Value *rhs) override { \
-		return builder->operation(lhs, rhs, "tmp");                  \
+#define COMPARE_IMPL_FUNCTION(name, operation)              \
+	llvm::Value *name(llvm::Value *lhs, llvm::Value *rhs) { \
+		return builder->operation(lhs, rhs, "tmp");         \
 	}
 	COMPARE_IMPL_FUNCTION(comparison_less_u8, CreateICmpULT)
 	COMPARE_IMPL_FUNCTION(comparison_less_u16, CreateICmpULT)
@@ -635,11 +615,11 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		return alloca;
 	}
 
-	llvm::Value *impl_subscript_ptr(type::Type pointed_type, llvm::Value *pointer, llvm::Value *index) override {
+	llvm::Value *impl_subscript_ptr(const type::Type &pointed_type, llvm::Value *pointer, llvm::Value *index) override {
 		return builder->CreateGEP(llvm_type(pointed_type), pointer, index, "tmp");
 	}
 
-	llvm::Value *impl_subscript_arr_ref(type::Array array_type, llvm::Value *arr_ref, llvm::Value *index) override {
+	llvm::Value *impl_subscript_arr_ref(const type::Array &array_type, llvm::Value *arr_ref, llvm::Value *index) override {
 		return builder->CreateGEP(llvm_type(array_type), arr_ref,
 								  {llvm::ConstantInt::get(index->getType(), 0), index}, "tmp");
 	}

@@ -473,9 +473,6 @@ struct Base {
 	type::Type visit(const ast::TypePtr &type) { return visit(type.get()); }
 	type::Type visit(const ast::TypeAst *type) {
 		return type->visit(
-				[](const std::monostate) -> type::Type {
-					throw std::runtime_error("unexpected empty AST node");
-				},
 				[&](const auto &type) { return visit(type); });
 	}
 
@@ -548,28 +545,48 @@ struct Base {
 		for (const auto &stmt : statement.statements)
 			visit(&stmt);
 	}
-	virtual void impl_visit(const ast::stmt::If &statement) = 0;
 	void visit(const ast::stmt::If &statement) {
-		return impl_visit(statement);
+		auto condition = deref(visit(statement.condition));
+		if (!condition.type.is<type::Primitive>() || !condition.type.get<type::Primitive>().is_bool())
+			throw std::runtime_error(fmt("If condition isn't a boolean @ ", statement.location));
+		static_cast<Child *>(this)->impl_if(condition.value, [&] { visit(statement.then); }, [&] {
+			if (statement.otherwise)
+				visit(*statement.otherwise); });
 	}
-	virtual void impl_visit(const ast::stmt::For &statement) = 0;
+	virtual UnderlyingValue get_bool_value(bool value) = 0;
+	void visit(const ast::stmt::While &statement) {
+		static_cast<Child *>(this)->impl_while([&] -> UnderlyingValue {
+			auto condition = visit(statement.expr);
+			if (!condition.type.is<type::Primitive>() || !condition.type.get<type::Primitive>().is_bool())
+				throw std::runtime_error(fmt("While condition isn't a boolean @ ", statement.location));
+			return condition.value; }, [&] { visit(statement.body); });
+	}
 	void visit(const ast::stmt::For &statement) {
 		NewScopeHere nsh{&locals}; // init variable is local
-		impl_visit(statement);
-	}
-	virtual void impl_visit(const ast::stmt::While &statement) = 0;
-	void visit(const ast::stmt::While &statement) {
-		impl_visit(statement);
+		if (statement.init)
+			visit(*statement.init);
+		static_cast<Child *>(this)->impl_while([&] -> UnderlyingValue {
+			if (!statement.cond)
+				return get_bool_value(true);
+			auto condition = visit(*statement.cond);
+			if (!condition.type.is<type::Primitive>() || !condition.type.get<type::Primitive>().is_bool())
+				throw std::runtime_error(fmt("For condition isn't a boolean @ ", statement.location));
+			return condition.value;
+		}, [&] {
+			visit(statement.body);
+			if (statement.incr)
+				visit(*statement.incr);
+		});
 	}
 	virtual void impl_return(Value value) = 0;
 	void visit(const ast::stmt::Return &statement) {
 		const auto value = deref(visit(statement.expr));
-		impl_return(value);
+		static_cast<Child *>(this)->impl_return(value);
 	}
 	virtual void impl_expr_stmt(Value value, const ast::stmt::Expr &statement) = 0;
 	void visit(const ast::stmt::Expr &statement) {
 		auto value = visit(statement.expr);
-		impl_expr_stmt(value, statement);
+		static_cast<Child *>(this)->impl_expr_stmt(value, statement);
 	}
 	void visit(const ast::stmt::Variable &statement) {
 		auto &values = locals.back().values;
@@ -587,7 +604,7 @@ struct Base {
 	}
 
 	/// Load the reference value `ref`, such that it is of type `when_loaded`
-	virtual UnderlyingValue impl_deref(type::Type when_loaded, UnderlyingValue ref) = 0;
+	virtual UnderlyingValue impl_deref(const type::Type &when_loaded, UnderlyingValue ref) = 0;
 	/// If value is NOT a reference, returns it.
 	/// Otherwise, load it and returns the value.
 	Value deref(Value value) {
@@ -596,7 +613,7 @@ struct Base {
 		auto loaded_type = value.type; // copy
 		loaded_type.is_const = false;
 		loaded_type.is_ref = false;
-		return Value{loaded_type, impl_deref(loaded_type, value.value)};
+		return Value{loaded_type, static_cast<Child *>(this)->impl_deref(loaded_type, value.value)};
 	}
 	/// Store the value on the stack, return a pointer to that value.
 	virtual UnderlyingValue impl_mkref(Value value) = 0;
@@ -608,7 +625,7 @@ struct Base {
 		auto ref_type = value.type; // copy
 		ref_type.is_const = true;
 		ref_type.is_ref = true;
-		return Value{ref_type, impl_mkref(value)};
+		return Value{ref_type, static_cast<Child *>(this)->impl_mkref(value)};
 	}
 
 	using unary_generator = Value (*)(Child &, const Value &);
@@ -619,33 +636,9 @@ struct Base {
 		return std::make_pair<operation::Unary, unary_generator>(
 				operation::Unary{op_t, op},
 				static_cast<unary_generator>(+[](Child &visitor, const Value &operand) -> Value {
-					return Value{result, (visitor.*Lambda)(visitor.deref(operand).value)};
-				}));
+			return Value{result, (visitor.*Lambda)(visitor.deref(operand).value)};
+		}));
 	}
-
-	virtual UnderlyingValue unary_b_not_u8(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_b_not_u16(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_b_not_u32(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_b_not_u64(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_b_not_u128(UnderlyingValue operand) = 0;
-
-	virtual UnderlyingValue unary_neg_u8(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_u16(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_u32(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_u64(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_u128(UnderlyingValue operand) = 0;
-
-	virtual UnderlyingValue unary_neg_i8(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_i16(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_i32(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_i64(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_i128(UnderlyingValue operand) = 0;
-
-	virtual UnderlyingValue unary_neg_half(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_float(UnderlyingValue operand) = 0;
-	virtual UnderlyingValue unary_neg_double(UnderlyingValue operand) = 0;
-
-	virtual UnderlyingValue unary_l_not_boolean(UnderlyingValue operand) = 0;
 
 	std::vector<std::pair<operation::Unary, unary_generator>>
 	builtin_unary_operations() {
@@ -654,8 +647,8 @@ struct Base {
 			constexpr auto &num = type::numeric[Index];
 			ops.emplace_back(operation::Unary{num, operators::pos},
 							 static_cast<unary_generator>(+[](Child &visitor, const Value &operand) -> Value {
-								 return operand;
-							 }));
+				return operand;
+			}));
 		});
 		ops.push_back(uop<type::t_uint8, operators::b_not, &Child::unary_b_not_u8>());
 		ops.push_back(uop<type::t_uint16, operators::b_not, &Child::unary_b_not_u16>());
@@ -691,135 +684,9 @@ struct Base {
 		return std::make_pair<operation::Binary, bop_generator>(
 				operation::Binary{left, right, op},
 				static_cast<bop_generator>(+[](Child &visitor, const Value &lhs, const Value &rhs) -> Value {
-					return Value{result, (visitor.*Lambda)(visitor.deref(lhs).value, visitor.deref(rhs).value)};
-				}));
+			return Value{result, (visitor.*Lambda)(visitor.deref(lhs).value, visitor.deref(rhs).value)};
+		}));
 	}
-
-	// Section: unsigned-unsigned built-in binary ops
-
-	virtual UnderlyingValue binary_b_and_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_and_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_and_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_and_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_and_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_b_or_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_or_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_or_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_or_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_or_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_b_xor_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_xor_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_xor_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_xor_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_xor_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_b_shl_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shl_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shl_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shl_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shl_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_b_shr_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-
-	virtual UnderlyingValue binary_add_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_sub_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_mul_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_div_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_mod_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	// Section: signed-signed built-in binary ops
-
-	virtual UnderlyingValue binary_b_shr_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_b_shr_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_add_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_sub_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_mul_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_div_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_mod_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	// Section: float-float built-in binary ops
-
-	virtual UnderlyingValue binary_add_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_add_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_sub_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_sub_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_mul_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mul_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_div_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_div_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_mod_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_mod_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue binary_pow_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue binary_pow_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
 
 	static std::vector<std::pair<operation::Binary, bop_generator>>
 	builtin_binary_operations() {
@@ -947,111 +814,10 @@ struct Base {
 		return std::make_pair<operation::Comparison, comparison_generator>(
 				operation::Comparison{left, right, op},
 				static_cast<comparison_generator>(+[](Child &visitor, const Value &lhs, const Value &rhs) -> Value {
-					return Value{result,
-								 (visitor.*Lambda)(visitor.deref(lhs).value, visitor.deref(rhs).value)};
-				}));
+			return Value{result,
+						 (visitor.*Lambda)(visitor.deref(lhs).value, visitor.deref(rhs).value)};
+		}));
 	}
-
-	// Section: unsigned-unsigned built-in comparison ops
-
-	virtual UnderlyingValue comparison_less_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_less_eq_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_greater_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_greater_eq_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_eq_eq_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_not_equal_u8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_u16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_u32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_u64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_u128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	// Section: signed-signed built-in comparison ops
-
-	virtual UnderlyingValue comparison_less_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_less_eq_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_greater_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_greater_eq_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_eq_eq_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_not_equal_i8(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_i16(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_i32(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_i64(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_i128(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	// Section: float-float built-in comparison ops
-	virtual UnderlyingValue comparison_less_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_less_eq_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_less_eq_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_greater_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_greater_eq_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_greater_eq_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_eq_eq_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_eq_eq_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-
-	virtual UnderlyingValue comparison_not_equal_half(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_float(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
-	virtual UnderlyingValue comparison_not_equal_double(UnderlyingValue lhs, UnderlyingValue rhs) = 0;
 
 	std::vector<std::pair<operation::Comparison, comparison_generator>>
 	builtin_comparison_operations() {
@@ -1154,17 +920,17 @@ struct Base {
 		if (lvalue.type.is_const)
 			throw std::runtime_error(
 					fmt("Left side of assignment is constant ", expr.location));
-		impl_store(lvalue, rvalue);
+		static_cast<Child *>(this)->impl_store(lvalue, rvalue);
 		return lvalue;
 	}
 	virtual Value impl_logical(const ast::expr::Binop &expr) = 0;
 	Value logical(const ast::expr::Binop &expr) {
-		return impl_logical(expr);
+		return static_cast<Child *>(this)->impl_logical(expr);
 	}
 
-	virtual UnderlyingValue impl_call(type::Function type, FunctionValue fn, std::span<UnderlyingValue> values) = 0;
+	virtual UnderlyingValue impl_call(const type::Function &type, FunctionValue fn, std::span<UnderlyingValue> values) = 0;
 	std::optional<Value> try_binop(const ast::expr::Binop &expr, const Value &lvalue, const Value &rvalue) {
-		Child &child_ref = *dynamic_cast<Child *>(this);
+		Child &child_ref = *static_cast<Child *>(this);
 		for (auto &[op, gen] : binary_operations) {
 			if (op.op == expr.op && op.left == lvalue.type &&
 				op.right == rvalue.type) {
@@ -1179,7 +945,7 @@ struct Base {
 			types[1].is_const = true;
 		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
 			std::array<UnderlyingValue, 2> args{lvalue.value, rvalue.value};
-			auto call = impl_call(function->type, function->value, args);
+			auto call = static_cast<Child *>(this)->impl_call(function->type, function->value, args);
 			return Value{
 					*function->type.return_type,
 					call};
@@ -1206,11 +972,11 @@ struct Base {
 	/// todo refactor this with some kind of backend-independent "phi" & block system
 	virtual Value impl_comparison(const ast::expr::Comparison &expr) = 0;
 	Value visit(const ast::expr::Comparison &expr) {
-		return impl_comparison(expr);
+		return static_cast<Child *>(this)->impl_comparison(expr);
 	}
 
 	Value visit(const ast::expr::Unary &expr) {
-		Child &child_ref = *dynamic_cast<Child *>(this);
+		Child &child_ref = *static_cast<Child *>(this);
 		auto operand = visit(expr.expr);
 		for (auto &[op, gen] : unary_operations) {
 			if (op.op == expr.op && op.operand == operand.type) {
@@ -1223,10 +989,10 @@ struct Base {
 
 	virtual Value impl_conditional(const ast::expr::Conditional &expr) = 0;
 	Value visit(const ast::expr::Conditional &expr) {
-		return impl_conditional(expr);
+		return static_cast<Child *>(this)->impl_conditional(expr);
 	}
 
-	virtual UnderlyingValue impl_value_call(type::Function type, UnderlyingValue fn, std::span<UnderlyingValue> values) = 0;
+	virtual UnderlyingValue impl_value_call(const type::Function &type, UnderlyingValue fn, std::span<UnderlyingValue> values) = 0;
 	Value value_call(const ast::expr::Call &expr) {
 		auto function = visit(expr.callee);
 		if (function.type.is<type::Pointer>() &&
@@ -1253,7 +1019,7 @@ struct Base {
 				throw std::runtime_error(fmt("Argument type mismatch ", expr.location));
 			args.push_back(value.value);
 		}
-		auto call = impl_call(funtype, function.value, args);
+		auto call = static_cast<Child *>(this)->impl_call(funtype, function.value, args);
 		return Value{
 				*funtype.return_type,
 				call};
@@ -1282,7 +1048,7 @@ struct Base {
 		std::vector<UnderlyingValue> underlying_args;
 		for (const auto &arg : args)
 			underlying_args.push_back(arg.value);
-		auto call = impl_call(function->type, function->value, underlying_args);
+		auto call = static_cast<Child *>(this)->impl_call(function->type, function->value, underlying_args);
 		return Value{
 				*function->type.return_type,
 				call};
@@ -1321,7 +1087,7 @@ struct Base {
 		std::vector<UnderlyingValue> underlying_args;
 		for (const auto &arg : args)
 			underlying_args.push_back(arg.value);
-		auto call = impl_call(function->type, function->value, underlying_args);
+		auto call = static_cast<Child *>(this)->impl_call(function->type, function->value, underlying_args);
 		return Value{
 				*function->type.return_type,
 				call};
@@ -1352,15 +1118,15 @@ struct Base {
 				throw std::runtime_error(fmt("Member type mismatch ", expr.location));
 			members.push_back(value.value);
 		}
-		auto alloca = impl_create(named, members);
+		auto alloca = static_cast<Child *>(this)->impl_create(named, members);
 		type.is_const = true;
 		type.is_ref = true;
 		return Value{type, alloca};
 	}
 
 
-	virtual UnderlyingValue impl_subscript_ptr(type::Type pointed_type, UnderlyingValue pointer, UnderlyingValue index) = 0;
-	virtual UnderlyingValue impl_subscript_arr_ref(type::Array array_type, UnderlyingValue arr_ref, UnderlyingValue index) = 0;
+	virtual UnderlyingValue impl_subscript_ptr(const type::Type &pointed_type, UnderlyingValue pointer, UnderlyingValue index) = 0;
+	virtual UnderlyingValue impl_subscript_arr_ref(const type::Array &array_type, UnderlyingValue arr_ref, UnderlyingValue index) = 0;
 	Value visit(const ast::expr::Subscript &expr) {
 		// todo fix
 		auto value = visit(expr.expr);
@@ -1376,7 +1142,7 @@ struct Base {
 			type::Type member_type = *pointer_type.pointed;
 			member_type.is_ref = false;
 			member_type.is_const = value.type.is_const;
-			auto gep = impl_subscript_ptr(member_type, value.value, index.value);
+			auto gep = static_cast<Child *>(this)->impl_subscript_ptr(member_type, value.value, index.value);
 			member_type.is_ref = true;
 			return Value{member_type, gep};
 		}
@@ -1386,7 +1152,7 @@ struct Base {
 			type::Type member_type = *array_type.member;
 			member_type.is_ref = true;
 			member_type.is_const = value.type.is_const;
-			auto gep = impl_subscript_arr_ref(array_type, value.value, index.value);
+			auto gep = static_cast<Child *>(this)->impl_subscript_arr_ref(array_type, value.value, index.value);
 			return Value{member_type, gep};
 		}
 		throw std::runtime_error(
@@ -1410,7 +1176,7 @@ struct Base {
 											 expr.location));
 			members.push_back(value_.value);
 		}
-		auto alloca = impl_array(array_type, members);
+		auto alloca = static_cast<Child *>(this)->impl_array(array_type, members);
 		return Value{type::Type{array_type, true, true},
 					 alloca};
 	}
@@ -1429,7 +1195,7 @@ struct Base {
 			throw std::runtime_error("`as` expression must be between numeric types");
 		return Value{
 				type,
-				impl_numeric_convert(value.value, from_prim, to_prim)};
+				static_cast<Child *>(this)->impl_numeric_convert(value.value, from_prim, to_prim)};
 	}
 
 	virtual UnderlyingValue impl_member(const type::NamedStruct &type, UnderlyingValue struct_ref, size_t member_index) = 0;
@@ -1446,7 +1212,7 @@ struct Base {
 				auto member_type = type;
 				member_type.is_ref = true;
 				member_type.is_const = value.type.is_const;
-				return Value{member_type, impl_member(named, value.value, index)};
+				return Value{member_type, static_cast<Child *>(this)->impl_member(named, value.value, index)};
 			}
 		}
 		throw std::runtime_error(fmt("Unknown member '", expr.name, "' in struct '",
@@ -1468,11 +1234,11 @@ struct Base {
 	Value visit(const ast::expr::Number &expr) {
 		return expr.value.visit(
 				[&](const ast::expr::Number::uint_t uinty) -> Value {
-					return Value{type::t_int32, impl_const_int32(static_cast<int32_t>(uinty))};
-				},
+			return Value{type::t_int32, static_cast<Child *>(this)->impl_const_int32(static_cast<int32_t>(uinty))};
+		},
 				[&](const ast::expr::Number::float_t floaty) -> Value {
-					return Value{type::t_double, impl_const_double(floaty)};
-				});
+			return Value{type::t_double, static_cast<Child *>(this)->impl_const_double(floaty)};
+		});
 	}
 };
 } // namespace backend
