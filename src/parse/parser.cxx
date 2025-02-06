@@ -277,6 +277,13 @@ struct Parser : reader::Reader {
 		}
 	}
 
+	std::optional<ast::TypeAst> parse_colon_type() {
+		if (!try_consume(":"))
+			return std::nullopt;
+		ws();
+		return parse_type();
+	}
+
 	// expressions
 
 	std::optional<operators::unary> parse_unary_op() {
@@ -691,17 +698,17 @@ struct Parser : reader::Reader {
 	std::optional<ast::ExprAst> parse_assignment() {
 		return parse_binop(
 				[](Parser &p) -> std::optional<operators::binary> {
-					if (p.eof())
-						return std::nullopt;
-					Parser peek = p;
-					if (peek.try_consume("=")) {
-						if (peek.try_consume("="))
-							return std::nullopt;
-						p = peek;
-						return std::make_optional(operators::binary::assign);
-					}
+			if (p.eof())
+				return std::nullopt;
+			Parser peek = p;
+			if (peek.try_consume("=")) {
+				if (peek.try_consume("="))
 					return std::nullopt;
-				},
+				p = peek;
+				return std::make_optional(operators::binary::assign);
+			}
+			return std::nullopt;
+		},
 				&Parser::parse_conditional);
 	}
 
@@ -728,22 +735,18 @@ struct Parser : reader::Reader {
 	std::optional<ast::stmt::Variable> parse_variable_declaration() {
 		const auto loc_start = get_loc();
 		ws();
-		const bool is_const = keyword("const");
-		ws();
 		const auto name = parse_name_str();
 		if (name.empty())
 			return std::nullopt;
 		ws();
-		if (!try_consume(":"))
-			return std::nullopt; // not a variable declaration, just a name (a + b;
-								 // for example)
+		const auto type = aon(&Parser::parse_colon_type);
 		ws();
-		auto type = aon(&Parser::parse_type);
-		ws();
-		if (!try_consume("=")) {
-			if (type)
-				error("Expected = after type in variable declaration");
-			return std::nullopt;
+		bool is_const = false;
+		if (!try_consume(".=")) {
+			if (try_consume(":="))
+				is_const = true;
+			else
+				return std::nullopt; // not a variable declaration?
 		}
 		ws();
 		auto expr = parse_expr();

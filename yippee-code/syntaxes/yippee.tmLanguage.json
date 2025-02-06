@@ -51,7 +51,7 @@
 				"match": "\\b(u?int(8|16|32|64|128)|boolean|half|float|double)\\b"
 			}, {
 				"name": "keyword.operator.assignment.yippee",
-				"match": ":?="
+				"match": "[.:]?="
 			}, {
 				"name": "keyword.operator.arithmetic.yippee",
 				"match": "(\\&\\&|\\|\\||\\<\\<|\\>\\>|\\*\\*|\\<\\=|\\>\\=|\\=\\=|\\!\\=|\\=|\\&|\\||\\^|\\+|\\-|\\*|\\/|\\%|\\-|\\+|\\!|\\~|\\<|\\>)"
