@@ -862,7 +862,7 @@ struct Parser : reader::Reader {
 	std::optional<ast::StatementAst> parse_statement() {
 		auto result = try_<ast::StatementAst>(
 				&Parser::parse_block, &Parser::parse_if, &Parser::parse_for,
-				&Parser::parse_while, &Parser::parse_return,
+				&Parser::parse_while, &Parser::parse_return, &Parser::parse_use_stmt,
 				&Parser::parse_variable_declaration, &Parser::parse_expr_statement);
 		if (!result)
 			return std::nullopt;
@@ -1034,10 +1034,39 @@ struct Parser : reader::Reader {
 												   std::move(fields)));
 	}
 
+	std::optional<ast::top::Use> parse_use() {
+		const auto loc_start = get_loc();
+		if (!keyword("use"))
+			return std::nullopt;
+		must_ws();
+		auto alias = parse_identifier();
+		if (!alias)
+			error("Expected identifier after `use`");
+		ws();
+		if (!try_consume("=")) {
+			expect(";");
+			const auto as = alias->final;
+			return ast::top::Use{get_range(loc_start), std::move(*alias), std::move(as)};
+		}
+		if (!alias->parts.empty())
+			error("No use `as` with parts");
+		ws();
+		auto identifier = parse_identifier();
+		if (!identifier)
+			error("Expected identifier after `use` =");
+		return ast::top::Use{get_range(loc_start), (std::move(*identifier)), std::move(alias->final)};
+	}
+	std::optional<ast::stmt::Use> parse_use_stmt() {
+		if (auto use = parse_use())
+			return ast::stmt::Use{use->location, use->identifier, use->as};
+		return std::nullopt;
+	}
+
 	std::optional<ast::TopLevelAst> parse_top_level() {
 		return try_<ast::TopLevelAst>(&Parser::parse_namespace,
 									  &Parser::parse_function,
-									  &Parser::parse_struct);
+									  &Parser::parse_struct,
+									  &Parser::parse_use);
 	}
 
 	// program

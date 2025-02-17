@@ -105,4 +105,9 @@ struct variant : std::variant<Ts...> {
 		return this->is<Member>() && this->get<Member>() == other;
 	}
 };
+
+template<class... Ts>
+variant<Ts...> clone(const variant<Ts...> &t) {
+	return t.visit([](const auto &m) { return variant<Ts...>{clone(m)}; });
+}
 } // namespace utils

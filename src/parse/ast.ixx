@@ -336,6 +336,18 @@ export struct While final : AstBase {
 	void children(children_cb cb) const override;
 	void summarize(std::ostream &os) const override;
 };
+export struct Use final : AstBase {
+	Identifier identifier;
+	Name as;
+	Use(const Range &location, Identifier identifier, Name as);
+	Use(const Use &other);
+	Use(Use &&other) noexcept;
+	Use &operator=(const Use &other);
+	Use &operator=(Use &&other) noexcept;
+	~Use() override;
+	void children(children_cb) const override;
+	void summarize(std::ostream &os) const override;
+};
 } // namespace stmt
 namespace top {
 export struct Function final : AstBase {
@@ -381,6 +393,18 @@ export struct Struct final : AstBase {
 	Struct &operator=(const Struct &other);
 	Struct &operator=(Struct &&other) noexcept;
 	~Struct() override;
+	void children(children_cb) const override;
+	void summarize(std::ostream &os) const override;
+};
+export struct Use final : AstBase {
+	Identifier identifier;
+	Name as;
+	Use(const Range &location, Identifier identifier, Name as);
+	Use(const Use &other);
+	Use(Use &&other) noexcept;
+	Use &operator=(const Use &other);
+	Use &operator=(Use &&other) noexcept;
+	~Use() override;
 	void children(children_cb) const override;
 	void summarize(std::ostream &os) const override;
 };
@@ -451,9 +475,9 @@ using ExprVariant =
 using StmtVariant =
 		utils::variant<ast::stmt::Block, ast::stmt::Expr, ast::stmt::For,
 					   ast::stmt::If, ast::stmt::Return, ast::stmt::Variable,
-					   ast::stmt::While>;
+					   ast::stmt::While, ast::stmt::Use>;
 using TopLevelVariant =
-		utils::variant<ast::top::Namespace, ast::top::Function, ast::top::Struct>;
+		utils::variant<ast::top::Namespace, ast::top::Function, ast::top::Struct, ast::top::Use>;
 using TypeVariant =
 		utils::variant<ast::type::Array, ast::type::Constant, ast::type::Named, ast::type::Pointer, ast::type::Primitive>;
 using AstVariant = utils::unwrap_concat_instantiate<

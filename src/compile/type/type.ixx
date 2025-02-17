@@ -57,7 +57,7 @@ export struct Primitive final {
 	constexpr static uint8_t numeric_bit = 0b1'0'0'000;
 	constexpr static uint8_t floating_bit = 0b0'1'0'000;
 	constexpr static uint8_t signed_bit = 0b0'0'1'000;
-	constexpr static uint8_t byte_size_bit = 0b0'0'0'111;
+	constexpr static uint8_t byte_size_bits = 0b0'0'0'111;
 	enum p_type : uint8_t {
 		boolean = 0b0'0'0'000,
 		uint8 = 0b1'0'0'000,
@@ -83,7 +83,7 @@ export struct Primitive final {
 		return Primitive(static_cast<p_type>(type | signed_bit));
 	}
 	[[nodiscard]] constexpr bool is_unsigned() const { return !is_signed(); }
-	[[nodiscard]] constexpr int size() const { return 1 << (type & byte_size_bit); }
+	[[nodiscard]] constexpr int size() const { return 1 << (type & byte_size_bits); }
 	[[nodiscard]] constexpr int bits() const { return size() * 8; }
 	p_type type;
 	constexpr explicit Primitive(const p_type type) : type(type) {}

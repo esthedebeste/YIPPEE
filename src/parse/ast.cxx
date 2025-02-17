@@ -434,6 +434,21 @@ void While::children(children_cb cb) const {
 	cb(to_ast_base(body.get()));
 }
 void While::summarize(std::ostream &os) const { os << "WhileStatement"; }
+
+Use::Use(const Range &location, Identifier identifier, Name as)
+	: AstBase(location), identifier{std::move(identifier)}, as{std::move(as)} {}
+Use::Use(const Use &other) = default;
+Use::Use(Use &&other) noexcept = default;
+Use &Use::operator=(const Use &other) = default;
+Use &Use::operator=(Use &&other) noexcept = default;
+Use::~Use() = default;
+void Use::children(children_cb cb) const {
+	cb(&identifier);
+	cb(&as);
+}
+void Use::summarize(std::ostream &os) const {
+	os << "Use";
+}
 } // namespace stmt
 namespace top {
 Function::Function(const Range &location, Identifier name,
@@ -519,6 +534,21 @@ void Struct::summarize(std::ostream &os) const {
 	for (auto &member : members)
 		os << (i++ == 0 ? "" : ", ") << member.first;
 	os << "})";
+}
+
+Use::Use(const Range &location, Identifier identifier, Name as)
+	: AstBase(location), identifier{std::move(identifier)}, as{std::move(as)} {}
+Use::Use(const Use &other) = default;
+Use::Use(Use &&other) noexcept = default;
+Use &Use::operator=(const Use &other) = default;
+Use &Use::operator=(Use &&other) noexcept = default;
+Use::~Use() = default;
+void Use::children(children_cb cb) const {
+	cb(&identifier);
+	cb(&as);
+}
+void Use::summarize(std::ostream &os) const {
+	os << "Use";
 }
 } // namespace top
 namespace type {

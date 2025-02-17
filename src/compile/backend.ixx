@@ -91,8 +91,8 @@ struct Base {
 				if (!type)
 					return std::nullopt;
 				type::Type argtype = std::move(*type);
-				base->locals.back().types.emplace(argument.name,
-												  ConstantType{.name = argument.name, .type = argtype});
+				base->locals.back().members.emplace(argument.name,
+													ConstantType{.name = argument.name, .type = argtype});
 				type_arguments.push_back(argtype);
 			}
 			std::optional<type::Function> result{};
@@ -127,7 +127,7 @@ struct Base {
 					throw std::runtime_error(fmt("Missing type argument for function ", ast->location));
 				}
 				type::Type argtype = std::move(*type);
-				base->locals.back().types.emplace(
+				base->locals.back().members.emplace(
 						argument.name, ConstantType{.name = argument.name, .type = argtype});
 				type_arguments.push_back(argtype);
 			}
@@ -187,7 +187,7 @@ struct Base {
 				throw std::runtime_error(
 						fmt("Missing type argument for struct ", argument.name, ". ", generic_struct.ast.location));
 			type::Type argtype = std::move(*type);
-			locals.back().types.emplace(
+			locals.back().members.emplace(
 					argument.name,
 					ConstantType{.name = argument.name, .type = argtype});
 			type_arguments.push_back(argtype);
@@ -282,10 +282,10 @@ struct Base {
 	};
 
 	struct Scope : FunctionContainer {
-		using values_t = std::unordered_map<std::string_view, Value>;
-		values_t values{};
-		using types_t = std::unordered_map<std::string_view, TypeTemplate>;
-		types_t types{};
+		using member_t = utils::variant<Value, TypeTemplate>;
+		using member_or_use_t = utils::variant<member_t, ast::Identifier>;
+		using members_t = std::unordered_map<std::string_view, member_or_use_t>;
+		members_t members{};
 		explicit Scope(Ambiguity ambiguity) : FunctionContainer{ambiguity} {}
 		Scope() : FunctionContainer{Ambiguity::NoDuplicateSignature} {};
 	};
@@ -348,34 +348,45 @@ struct Base {
 				return ns;
 			return nullptr;
 		}
-		const Value *value(const std::string_view name) {
+		const typename Scope::member_t *member(const std::string_view name) {
 			for (Namespace *current = this; current != nullptr;
 				 current = current->parent)
-				if (auto got = current->values.find(name); got != current->values.end())
-					return &got->second;
+				if (auto got = current->members.find(name); got != current->members.end()) {
+					if (got->second.is<ast::Identifier>())
+						return current->member(got->second.get<ast::Identifier>());
+					return &got->second.get<typename Scope::member_t>();
+				}
+			return nullptr;
+		}
+		const typename Scope::member_t *member(const ast::Identifier &name) {
+			if (name.parts.empty())
+				return member(name.final.str);
+			for (auto ns : namespaces(name, false))
+				if (auto got = ns->members.find(name.final.str); got != ns->members.end()) {
+					if (got->second.is<ast::Identifier>())
+						return ns->member(got->second.get<ast::Identifier>());
+					return &got->second.get<typename Scope::member_t>();
+				}
+			return nullptr;
+		}
+		const Value *value(const std::string_view name) {
+			if (auto m = member(name); m && m->is<Value>())
+				return &m->get<Value>();
 			return nullptr;
 		}
 		const Value *value(const ast::Identifier &name) {
-			if (name.parts.empty())
-				return value(name.final.str);
-			for (auto ns : namespaces(name, false))
-				if (auto got = ns->values.find(name.final.str); got != ns->values.end())
-					return &got->second;
+			if (auto m = member(name); m && m->is<Value>())
+				return &m->get<Value>();
 			return nullptr;
 		}
 		const TypeTemplate *type(const std::string_view name) {
-			for (Namespace *current = this; current != nullptr;
-				 current = current->parent)
-				if (auto got = current->types.find(name); got != current->types.end())
-					return &got->second;
+			if (auto m = member(name); m && m->is<TypeTemplate>())
+				return &m->get<TypeTemplate>();
 			return nullptr;
 		}
 		const TypeTemplate *type(const ast::Identifier &name) {
-			if (name.parts.empty())
-				return type(name.final.str);
-			for (auto ns : namespaces(name, false))
-				if (auto got = ns->types.find(name.final.str); got != ns->types.end())
-					return &got->second;
+			if (auto m = member(name); m && m->is<TypeTemplate>())
+				return &m->get<TypeTemplate>();
 			return nullptr;
 		}
 		std::optional<GetFunctionResult> function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
@@ -398,27 +409,39 @@ struct Base {
 	struct LocalScope : std::vector<Scope> {
 		Namespace *ns;
 		LocalScope(Namespace *ns) : ns{ns} {}
-		const Value *value(const std::string_view name) {
+		const typename Scope::member_t *member(const std::string_view name) {
 			for (const auto &scope : *this | std::views::reverse)
-				if (auto got = scope.values.find(name); got != scope.values.end())
-					return &got->second;
-			return ns->value(name);
+				if (auto got = scope.members.find(name); got != scope.members.end()) {
+					if (got->second.is<ast::Identifier>())
+						return ns->member(got->second.get<ast::Identifier>());
+					return &got->second.get<typename Scope::member_t>();
+				}
+			return ns->member(name);
+		}
+		const typename Scope::member_t *member(const ast::Identifier &name) {
+			if (name.parts.empty())
+				return member(name.final.str);
+			return ns->member(name);
+		}
+		const Value *value(const std::string_view name) {
+			if (auto m = member(name); m && m->is<Value>())
+				return &m->get<Value>();
+			return nullptr;
 		}
 		const Value *value(const ast::Identifier &name) {
-			if (name.parts.empty())
-				return value(name.final.str);
-			return ns->value(name);
+			if (auto m = member(name); m && m->is<Value>())
+				return &m->get<Value>();
+			return nullptr;
 		}
 		const TypeTemplate *type(const std::string_view name) {
-			for (const auto &scope : *this | std::views::reverse)
-				if (auto got = scope.types.find(name); got != scope.types.end())
-					return &got->second;
-			return ns->type(name);
+			if (auto m = member(name); m && m->is<TypeTemplate>())
+				return &m->get<TypeTemplate>();
+			return nullptr;
 		}
 		const TypeTemplate *type(const ast::Identifier &name) {
-			if (name.parts.empty())
-				return type(name.final.str);
-			return ns->type(name);
+			if (auto m = member(name); m && m->is<TypeTemplate>())
+				return &m->get<TypeTemplate>();
+			return nullptr;
 		}
 	};
 
@@ -444,10 +467,10 @@ struct Base {
 		naming::FullName name{ns_->path(), ast.name.final.str};
 
 		if (type_pass) {
-			if (ns_->types.contains(ast.name.final.str))
+			if (ns_->members.contains(ast.name.final.str))
 				throw std::runtime_error(fmt("Struct '", name, "' already defined"));
 
-			ns_->types.emplace(
+			ns_->members.emplace(
 					name.final,
 					GenericStruct{
 							.definition_ns = ns_,
@@ -455,14 +478,11 @@ struct Base {
 							.name = name,
 					});
 		} else {
-			auto res = ns_->types.at(name.final);
 			if (ast.type_arguments.empty()) {
 				// if it's not templated, check if the struct works out pre-reference by calling it,
 				// and re-assign it to a cached version.
 				const auto ns_ = locals.ns->namespace_(ast.name, false);
-				naming::FullName name{ns_->path(), ast.name.final.str};
-
-				auto &res = ns_->types.at(name.final);
+				auto &res = ns_->members.at(name.final).get<typename Scope::member_t>().get<TypeTemplate>();
 				res = ConstantType{
 						.name = name.final,
 						.type = get_type(res, {})};
@@ -535,6 +555,16 @@ struct Base {
 		for (auto &top : ast.tops)
 			visit(&top);
 	}
+	void visit_as(const auto &ast) {
+		if (!locals.back().members.try_emplace(ast.as.str, ast.identifier).second)
+			throw std::runtime_error(fmt("Overlapping member '", ast.identifier, "' in as @ ", ast.location));
+	}
+	void visit(const ast::top::Use &ast) {
+		visit_as(ast);
+	}
+	void visit(const ast::stmt::Use &ast) {
+		visit_as(ast);
+	}
 	void visit(const ast::StatementPtr &statement) { visit(statement.get()); }
 	void visit(const ast::StatementAst *statement) {
 		statement->visit(
@@ -555,7 +585,7 @@ struct Base {
 	}
 	virtual UnderlyingValue get_bool_value(bool value) = 0;
 	void visit(const ast::stmt::While &statement) {
-		static_cast<Child *>(this)->impl_while([&] -> UnderlyingValue {
+		static_cast<Child *>(this)->impl_while([&]() -> UnderlyingValue {
 			auto condition = visit(statement.expr);
 			if (!condition.type.is<type::Primitive>() || !condition.type.get<type::Primitive>().is_bool())
 				throw std::runtime_error(fmt("While condition isn't a boolean @ ", statement.location));
@@ -565,7 +595,7 @@ struct Base {
 		NewScopeHere nsh{&locals}; // init variable is local
 		if (statement.init)
 			visit(*statement.init);
-		static_cast<Child *>(this)->impl_while([&] -> UnderlyingValue {
+		static_cast<Child *>(this)->impl_while([&]() -> UnderlyingValue {
 			if (!statement.cond)
 				return get_bool_value(true);
 			auto condition = visit(*statement.cond);
@@ -589,12 +619,12 @@ struct Base {
 		static_cast<Child *>(this)->impl_expr_stmt(value, statement);
 	}
 	void visit(const ast::stmt::Variable &statement) {
-		auto &values = locals.back().values;
+		auto &members = locals.back().members;
 		auto value = mkref(deref(visit(statement.expr)));
 		value.type = statement.type ? visit(*statement.type) : value.type;
 		value.type.is_ref = true;
 		value.type.is_const = statement.is_const;
-		values.insert_or_assign(statement.name, value);
+		members.insert_or_assign(statement.name, value);
 	}
 
 	Value visit(const ast::ExprPtr &expr) { return visit(expr.get()); }

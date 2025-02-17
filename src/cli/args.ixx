@@ -13,7 +13,7 @@ export class Args {
 
 public:
 	std::string argv0;
-	std::vector<std::string> files;
+	std::vector<std::string> inputs;
 	std::string output;
 	std::string parse_tree;
 	friend std::optional<Args> parse_args(int argc, char **argv);
@@ -90,8 +90,8 @@ std::optional<Args> parse_args(const int argc, char **argv) {
 						return err(fmt("unknown short option ", c));
 				}
 			}
-		} else // arg doesn't start with - or --, interpret as a file
-			args.files.emplace_back(arg);
+		} else // arg doesn't start with - or --, interpret as an input
+			args.inputs.emplace_back(arg);
 	}
 	if (args.output.empty())
 		return err("no output specified");
