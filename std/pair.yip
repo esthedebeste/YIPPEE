@@ -1,14 +1,13 @@
-namespace std {
-    struct Pair<First, Second = First> {
-        first: First,
-        second: Second,
-    }
+namespace std;
+struct Pair<First, Second = First> {
+    first: First,
+    second: Second,
+}
 
-    fun pair_of<A, B = A>(first: A, second: B): Pair<A, B> {
-        return create Pair<A, B> { first: first, second: second };
-    }
+fun pair_of<A, B = A>(first: A, second: B): Pair<A, B> {
+    return create Pair<A, B> { first: first, second: second };
+}
 
-    fun operator+(a: Pair<int32, int32>, b: Pair<int32, int32>): Pair<int32, int32> {
-        return create Pair<int32, int32> { first: a.first + b.first, second: a.second + b.second };
-    }
+fun operator+(a: Pair<int32, int32>, b: Pair<int32, int32>): Pair<int32, int32> {
+    return create Pair<int32, int32> { first: a.first + b.first, second: a.second + b.second };
 }

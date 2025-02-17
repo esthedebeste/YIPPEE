@@ -930,7 +930,9 @@ struct Parser : reader::Reader {
 		if (!identifier)
 			error("Expected identifier");
 		ws();
-		expect("{");
+		bool semicolon = try_consume(";");
+		if (!semicolon)
+			expect("{");
 		ws();
 		std::vector<ast::TopLevelAst> top_level_asts;
 		while (true) {
@@ -941,8 +943,10 @@ struct Parser : reader::Reader {
 			top_level_asts.push_back(std::move(*top_level_ast));
 		}
 		ws();
-		expect("}");
-		ws();
+		if (!semicolon) {
+			expect("}");
+			ws();
+		}
 		return std::make_optional(ast::top::Namespace(
 				get_range(loc_start), std::move(*identifier), std::move(top_level_asts)));
 	}
