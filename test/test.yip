@@ -11,12 +11,19 @@ fun pair_of_things(): std::Pair<int32, int32> {
 }
 
 namespace test_ns {
+    namespace std {
+        struct Pair<T> { lalala_naming_conflict: T }
+    }
     fun other(): int32 {
         return 12345;
     }
 
     fun other(argument: int32): int32 {
         return 18107 * argument;
+    }
+
+    fun absolute_path(): int32 {
+        return create ::std::Pair<int32> { first: 12345, second: 67890 }.second;
     }
 }
 
@@ -118,6 +125,8 @@ fun C::main(): int32 {
 
     use std::Pair;
     create Pair<int32> { first: 1, second: 2 }.second;        // 2
+
+    test_ns::absolute_path();                                 // 67890
                                                               
 	return 0;                                                 
 }

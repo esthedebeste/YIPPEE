@@ -184,6 +184,9 @@ struct Parser : reader::Reader {
 	std::optional<ast::Identifier> parse_identifier() {
 		const auto loc_start = get_loc();
 		std::vector<ast::Name> names;
+		// names can start with a ::
+		if (try_consume("::"))
+			names.push_back(ast::Name{get_range(loc_start), ""});
 		while (true) {
 			auto name = parse_name();
 			if (!name)

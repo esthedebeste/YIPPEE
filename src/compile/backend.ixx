@@ -319,11 +319,19 @@ struct Base {
 		}
 		std::generator<Namespace *> namespaces(const ast::Identifier &name,
 											   const bool final = true) {
-			for (Namespace *current = this; current != nullptr;
+			std::span parts{name.parts};
+			Namespace *current = this;
+			if (!parts.empty() && parts.front().str == "") {
+				for (Namespace *root = this; root != nullptr;
+					 root = current->parent)
+					current = root;
+				parts = parts.subspan(1);
+			}
+			for (; current != nullptr;
 				 current = current->parent) {
 				Namespace *curr_res = current;
 				bool nextresolve = false;
-				for (const auto &part : name.parts) {
+				for (const auto &part : parts) {
 					auto got = curr_res->children.find(part.str);
 					if (got == curr_res->children.end()) {
 						nextresolve = true;
