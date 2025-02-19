@@ -2,6 +2,7 @@ module;
 #include <memory>
 #include <optional>
 #include <tuple>
+#include <vector>
 export module utils.type;
 
 namespace {
@@ -69,6 +70,15 @@ std::optional<T> clone(const std::optional<T> &t) {
 	if (!t)
 		return std::nullopt;
 	return std::make_optional(clone(*t));
+}
+
+template<class T>
+std::vector<T> clone(const std::vector<T> &t) {
+	std::vector<T> res{};
+	res.reserve(t.size());
+	for (const auto &v : t)
+		res.push_back(clone(v));
+	return res;
 }
 
 template<template<class...> class T, class U>

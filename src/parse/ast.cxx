@@ -185,11 +185,10 @@ void Member::summarize(std::ostream &os) const {
 	os << "Member(" << name << ")";
 }
 MemberCall::MemberCall(const Range &location, ExprPtr callee, std::string_view name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments)
-	: AstBase(location), callee{std::move(callee)}, name{std::move(name)},
-	  type_arguments{std::move(type_arguments)}, arguments{std::move(arguments)} {}
+	: AstBase(location), callee{std::move(callee)}, name{name},
+	  type_arguments{std::move(type_arguments)}, arguments{arguments} {}
 MemberCall::MemberCall(const MemberCall &other)
-	: AstBase(other), callee{clone(other.callee)}, name{other.name},
-	  type_arguments{other.type_arguments}, arguments{other.arguments} {}
+	: AstBase(other), callee(clone(other.callee)), name{other.name}, type_arguments{other.type_arguments}, arguments{other.arguments} {}
 MemberCall::MemberCall(MemberCall &&other) noexcept = default;
 MemberCall::~MemberCall() = default;
 MemberCall &MemberCall::operator=(const MemberCall &other) {
@@ -292,6 +291,40 @@ void TypeArgument::summarize(std::ostream &os) const { os << "TypeArgument(" << 
 void TypeArgument::children(children_cb cb) const {
 	if (default_type)
 		cb(to_ast_base(default_type->get()));
+}
+
+FunctionParameter::FunctionParameter(const Range &location, Name name, TypePtr type, Kind kind)
+	: AstBase(location), name(std::move(name)), type(std::move(type)), kind(kind) {}
+FunctionParameter::FunctionParameter(const FunctionParameter &other)
+	: AstBase(other), name(other.name), type(clone(other.type)), kind(other.kind) {}
+FunctionParameter::FunctionParameter(FunctionParameter &&other) noexcept = default;
+FunctionParameter::~FunctionParameter() = default;
+FunctionParameter &FunctionParameter::operator=(const FunctionParameter &other) {
+	AstBase::operator=(other);
+	name = other.name;
+	type = clone(other.type);
+	kind = other.kind;
+	return *this;
+}
+FunctionParameter &FunctionParameter::operator=(FunctionParameter &&other) noexcept = default;
+void FunctionParameter::summarize(std::ostream &os) const {
+	os << "FunctionParameter(kind=";
+	switch (kind) {
+		case in:
+			os << "in";
+			break;
+		case out:
+			os << "out";
+			break;
+		case own:
+			os << "own";
+			break;
+	}
+	os << ")";
+}
+void FunctionParameter::children(children_cb cb) const {
+	cb(&name);
+	cb(to_ast_base(type.get()));
 }
 namespace stmt {
 Block::Block(const Range &location, std::vector<StatementAst> statements)
@@ -453,7 +486,7 @@ void Use::summarize(std::ostream &os) const {
 namespace top {
 Function::Function(const Range &location, Identifier name,
 				   std::vector<TypeArgument> type_arguments,
-				   std::vector<Parameter> parameters, TypePtr return_type,
+				   std::vector<FunctionParameter> parameters, TypePtr return_type,
 				   std::optional<StatementPtr> statement)
 	: AstBase(location), name{std::move(name)},
 	  type_arguments(std::move(type_arguments)),
@@ -473,13 +506,12 @@ Function &Function::operator=(const Function &other) {
 	return *this;
 }
 Function &Function::operator=(Function &&other) noexcept = default;
-Function::~Function() {}
+Function::~Function() = default;
 void Function::children(children_cb cb) const {
 	for (auto &type_arg : type_arguments)
 		cb(&type_arg);
 	for (auto &param : parameters) {
-		cb(&param.first);
-		cb(to_ast_base(&param.second));
+		cb(&param);
 	}
 	if (statement)
 		cb(to_ast_base(statement->get()));

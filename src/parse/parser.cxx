@@ -290,10 +290,11 @@ struct Parser : reader::Reader {
 	// expressions
 
 	std::optional<operators::unary> parse_unary_op() {
-		for (auto op : operators::all_unaries()) {
-			if (try_consume(string(op)))
+		for (auto op : operators::all_unaries())
+			if (op >= operators::unary::START_KEYWORD && op <= operators::unary::END_KEYWORD
+						? keyword(string(op))
+						: try_consume(string(op)))
 				return std::make_optional(op);
-		}
 		return std::nullopt;
 	}
 	std::optional<ast::expr::Unary> parse_unary() {
@@ -301,6 +302,7 @@ struct Parser : reader::Reader {
 		auto op = parse_unary_op();
 		if (!op)
 			return std::nullopt;
+		ws();
 		auto expr = parse_atom();
 		if (!expr)
 			error("Expected expression after ", *op);
@@ -969,18 +971,27 @@ struct Parser : reader::Reader {
 			type_arguments = parse_type_arguments_declaration();
 		ws();
 		expect("(");
-		std::vector<ast::top::Function::Parameter> parameters{};
+		std::vector<ast::FunctionParameter> parameters{};
 		while (true) {
+			const auto fp_loc_start = get_loc();
 			auto name = parse_name();
 			if (!name)
 				break;
 			expect(":");
 			ws();
+			ast::FunctionParameter::Kind kind;
+			if (keyword("own"))
+				kind = ast::FunctionParameter::Kind::own;
+			else if (keyword("out"))
+				kind = ast::FunctionParameter::Kind::out;
+			else
+				kind =  ast::FunctionParameter::Kind::in;
+			ws();
 			auto type = parse_type();
 			if (!type)
 				error("Expected parameter type");
 			ws();
-			parameters.emplace_back(*name, *type);
+			parameters.emplace_back(get_range(fp_loc_start), *name, std::make_unique<ast::TypeAst>(std::move(*type)), kind);
 			if (!try_consume(","))
 				break;
 			ws();

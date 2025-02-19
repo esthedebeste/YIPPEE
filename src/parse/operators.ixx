@@ -41,7 +41,11 @@ enum unary {
 	pos = 1,
 	l_not = 2,
 	b_not = 3,
+	move = 4,
+	out = 5,
 	MAX_UNARY,
+	START_KEYWORD = move,
+	END_KEYWORD = out,
 };
 extern std::array<std::string_view, MAX_UNARY> unary_strings;
 ALLFUNC(all_unaries, MAX_UNARY, unary)
@@ -75,7 +79,7 @@ module :private;
 namespace operators {
 std::array<std::string_view, MAX_BINARY> binary_strings{
 		"=", "&&", "||", "&", "|", "^", "<<", ">>", "+", "-", "**", "*", "/", "%"};
-std::array<std::string_view, MAX_UNARY> unary_strings{"-", "+", "!", "~"};
+std::array<std::string_view, MAX_UNARY> unary_strings{"-", "+", "!", "~", "move", "out"};
 std::array<std::string_view, MAX_COMPARISON> comparison_strings{
 		"<=", ">=", "==", "!=", "<", ">"};
 std::array<std::string_view, MAX_BINARY + MAX_UNARY + MAX_COMPARISON> all_strings{

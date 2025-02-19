@@ -1,10 +1,10 @@
 fun wrapped_five(): Wrap<int32> {
 	return create Wrap<int32> { value: 5 };
-} // look! position independence! wowie!
+}
 
 struct Wrap<T> {
  	value: T,
-}
+} // look! position independence! wowie!
 
 fun pair_of_things(): std::Pair<int32, int32> {
     return create std::Pair<int32> { first: 1, second: 2 };
@@ -54,7 +54,7 @@ fun take(s: SelfReferential): int32 {
 }
 
 namespace C {
-    extern fun abs(n: int32): int32;
+    extern fun abs(n: own int32): int32;
 }
 fun C::main(): int32 {
 	1;                                                        // 1
@@ -117,7 +117,7 @@ fun C::main(): int32 {
     iterative_fibonacci(46);                                  // 1836311903
     iterative_fibonacci<uint64>(93 as uint64);                // 12200160415121876738
                                                               
-    C::abs(-20);                                              // 20
+    C::abs(move -20);                                         // 20
                                                               
     a := 2;                                                   
     a := (a + 1) as uint64;                                   

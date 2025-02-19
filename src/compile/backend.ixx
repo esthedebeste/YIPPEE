@@ -98,10 +98,8 @@ struct Base {
 			std::optional<type::Function> result{};
 			try {
 				std::vector<type::Type> args;
-				for (const ast::TypeAst &type : ast->parameters | std::views::values) {
-					auto param_type = base->visit(&type);
-					if (!param_type.is_ref)
-						param_type.is_const = true;
+				for (const ast::FunctionParameter &parameter : ast->parameters) {
+					auto param_type = base->visit(parameter);
 					args.push_back(std::move(param_type));
 				}
 				const type::Type return_type = base->visit(ast->return_type);
@@ -132,10 +130,8 @@ struct Base {
 				type_arguments.push_back(argtype);
 			}
 			std::vector<type::Type> args;
-			for (const auto &type : ast->parameters | std::views::values) {
-				auto param_type = base->visit(&type);
-				if (!param_type.is_ref)
-					param_type.is_const = true;
+			for (const auto &parameter : ast->parameters) {
+				auto param_type = base->visit(parameter);
 				args.push_back(std::move(param_type));
 			}
 			const type::Type return_type = base->visit(ast->return_type);
@@ -214,7 +210,7 @@ struct Base {
 		Ambiguity ambiguity;
 		explicit FunctionContainer(Ambiguity ambiguity)
 			: ambiguity{ambiguity} {}
-		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<type::Type> parameters) {
+		std::optional<GetFunctionResult> get_function(Base *base, std::string_view name, std::span<type::Type> type_parameters, std::span<const type::Type> parameters) {
 			auto it = functions.find(name);
 			if (it == functions.end())
 				return std::nullopt;
@@ -236,8 +232,8 @@ struct Base {
 			TopLevelFunction tlf{ns, ast};
 			if (ambiguity == Ambiguity::NoDuplicateSignature && ast->type_arguments.empty()) {
 				std::vector<type::Type> parameters;
-				for (const auto &param : ast->parameters | std::views::values)
-					parameters.push_back(base->visit(&param));
+				for (const auto &param : ast->parameters)
+					parameters.push_back(base->visit(param));
 				if (auto func = get_function(base, string, {}, parameters))
 					throw std::runtime_error(fmt("Function already exists with the same signature - ", ast->location, " and ", func->tlf->ast->location));
 			}
@@ -254,8 +250,8 @@ struct Base {
 			const auto &string = tlf.ast->name.final.str;
 			if (ambiguity == Ambiguity::NoDuplicateSignature && tlf.ast->type_arguments.empty()) {
 				std::vector<type::Type> parameters;
-				for (const auto &param : tlf.ast->parameters | std::views::values)
-					parameters.push_back(base->visit(&param));
+				for (const auto &param : tlf.ast->parameters)
+					parameters.push_back(base->visit(param));
 				if (auto func = get_function(base, string, {}, parameters))
 					throw std::runtime_error(fmt("Function already exists with the same signature - ", tlf.ast->location, " and ", func->tlf->ast->location));
 			}
@@ -459,8 +455,8 @@ struct Base {
 
 	type::Function function_type(const ast::top::Function &function) {
 		std::vector<type::Type> args;
-		for (const auto &type : function.parameters | std::views::values)
-			args.push_back(visit(&type));
+		for (const auto &type : function.parameters)
+			args.push_back(visit(type));
 		return type::Function{args, visit(function.return_type)};
 	}
 
@@ -498,6 +494,12 @@ struct Base {
 		}
 	}
 
+	type::Type visit(const ast::FunctionParameter &parameter) {
+		auto type = visit(parameter.type);
+		type.is_ref = parameter.kind != ast::FunctionParameter::Kind::own;
+		type.is_const = parameter.kind != ast::FunctionParameter::Kind::out;
+		return type;
+	}
 	type::Type visit(const ast::TypePtr &type) { return visit(type.get()); }
 	type::Type visit(const ast::TypeAst *type) {
 		return type->visit(
@@ -645,21 +647,27 @@ struct Base {
 	virtual UnderlyingValue impl_deref(const type::Type &when_loaded, UnderlyingValue ref) = 0;
 	/// If value is NOT a reference, returns it.
 	/// Otherwise, load it and returns the value.
-	Value deref(Value value) {
-		if (!value.type.is_ref)
+	Value deref(Value value, bool constify = false) {
+		if (!value.type.is_ref) {
+			if (constify)
+				value.type.is_const = true;
 			return value;
+		}
 		auto loaded_type = value.type; // copy
-		loaded_type.is_const = false;
+		loaded_type.is_const = constify;
 		loaded_type.is_ref = false;
 		return Value{loaded_type, static_cast<Child *>(this)->impl_deref(loaded_type, value.value)};
 	}
 	/// Store the value on the stack, return a pointer to that value.
 	virtual UnderlyingValue impl_mkref(Value value) = 0;
-	/// If value is a reference, returns it.
+	/// If value is a reference, returns it (constified).
 	/// Otherwise, `alloca`s and returns a const T&.
-	Value mkref(Value value) {
-		if (value.type.is_ref)
+	Value mkref(Value value, bool constify = false) {
+		if (value.type.is_ref) {
+			if (constify)
+				value.type.is_const = true;
 			return value;
+		}
 		auto ref_type = value.type; // copy
 		ref_type.is_const = true;
 		ref_type.is_ref = true;
@@ -967,29 +975,6 @@ struct Base {
 	}
 
 	virtual UnderlyingValue impl_call(const type::Function &type, FunctionValue fn, std::span<UnderlyingValue> values) = 0;
-	std::optional<Value> try_binop(const ast::expr::Binop &expr, const Value &lvalue, const Value &rvalue) {
-		Child &child_ref = *static_cast<Child *>(this);
-		for (auto &[op, gen] : binary_operations) {
-			if (op.op == expr.op && op.left == lvalue.type &&
-				op.right == rvalue.type) {
-				return gen(child_ref, lvalue, rvalue);
-			}
-		}
-		std::string_view op_str = string(expr.op);
-		auto types = std::array{lvalue.type, rvalue.type};
-		if (!types[0].is_ref)
-			types[0].is_const = true;
-		if (!types[1].is_ref)
-			types[1].is_const = true;
-		if (auto function = all_function_container.get_function(this, op_str, {}, types)) {
-			std::array<UnderlyingValue, 2> args{lvalue.value, rvalue.value};
-			auto call = static_cast<Child *>(this)->impl_call(function->type, function->value, args);
-			return Value{
-					*function->type.return_type,
-					call};
-		}
-		return std::nullopt;
-	}
 
 	Value visit(const ast::expr::Binop &expr) {
 		if (expr.op == operators::assign)
@@ -998,13 +983,62 @@ struct Base {
 			return logical(expr);
 		auto lvalue = visit(expr.left);
 		auto rvalue = visit(expr.right);
-		if (auto value = try_binop(expr, lvalue, rvalue))
-			return *value;
-		lvalue = deref(lvalue);
-		rvalue = deref(rvalue);
-		if (auto value = try_binop(expr, lvalue, rvalue))
-			return *value;
+		Child &child_ref = *static_cast<Child *>(this);
+		for (auto &[op, gen] : binary_operations) {
+			auto ltype_loaded = lvalue.type, rtype_loaded = rvalue.type;
+			ltype_loaded.is_ref = ltype_loaded.is_const = rtype_loaded.is_ref = rtype_loaded.is_const = false;
+			if (op.op == expr.op && op.left == ltype_loaded &&
+				op.right == rtype_loaded) {
+				return gen(child_ref, deref(lvalue), deref(rvalue));
+			}
+		}
+		std::string_view op_str = string(expr.op);
+		if (!is_move(*expr.left))
+			// not a `move` so turn it into a reference
+			lvalue = mkref(lvalue);
+		else
+			lvalue.type.is_const = true;
+		if (!is_move(*expr.right))
+			// not a `move` so turn it into a reference
+			rvalue = mkref(rvalue);
+		else
+			rvalue.type.is_const = true;
+		auto function = all_function_container.get_function(this, op_str, {}, std::array{lvalue.type, rvalue.type});
+		if (function)
+			goto found_one;
+		if (!lvalue.type.is_const) {
+			// try with const-?
+			lvalue.type.is_const = true;
+			function = all_function_container.get_function(this, op_str, {}, std::array{lvalue.type, rvalue.type});
+			if (function)
+				goto found_one;
+			lvalue.type.is_const = false;
+		}
+		if (!rvalue.type.is_const) {
+			// try with ?-const
+			rvalue.type.is_const = true;
+			function = all_function_container.get_function(this, op_str, {}, std::array{lvalue.type, rvalue.type});
+			if (function)
+				goto found_one;
+			rvalue.type.is_const = false;
+		}
+		if (!lvalue.type.is_const && !rvalue.type.is_const) {
+			// try with const-const
+			lvalue.type.is_const = true;
+			rvalue.type.is_const = true;
+			function = all_function_container.get_function(this, op_str, {}, std::array{lvalue.type, rvalue.type});
+			if (function)
+				goto found_one;
+			lvalue.type.is_const = false;
+			rvalue.type.is_const = false;
+		}
 		throw std::runtime_error(fmt("Couldn't find a corresponding operation (function) for operator '", expr.op, "' :( ", expr.location));
+	found_one:
+		std::array<UnderlyingValue, 2> args{lvalue.value, rvalue.value};
+		auto call = static_cast<Child *>(this)->impl_call(function->type, function->value, args);
+		return Value{
+				*function->type.return_type,
+				call};
 	}
 
 	/// todo refactor this with some kind of backend-independent "phi" & block system
@@ -1016,6 +1050,12 @@ struct Base {
 	Value visit(const ast::expr::Unary &expr) {
 		Child &child_ref = *static_cast<Child *>(this);
 		auto operand = visit(expr.expr);
+		if (expr.op == operators::unary::move) {
+			return deref(operand, true);
+		}
+		if (expr.op == operators::unary::out)
+			if (!operand.type.is_ref || operand.type.is_const)
+				throw std::runtime_error("can't `out` a value that isn't a mutable reference");
 		for (auto &[op, gen] : unary_operations) {
 			if (op.op == expr.op && op.operand == operand.type) {
 				return gen(child_ref, operand);
@@ -1028,6 +1068,14 @@ struct Base {
 	virtual Value impl_conditional(const ast::expr::Conditional &expr) = 0;
 	Value visit(const ast::expr::Conditional &expr) {
 		return static_cast<Child *>(this)->impl_conditional(expr);
+	}
+
+	static bool is_move(const ast::ExprAst &expr) {
+		return expr.is<ast::expr::Unary>() && expr.get<ast::expr::Unary>().op == operators::unary::move;
+	}
+
+	static bool is_out(const ast::ExprAst &expr) {
+		return expr.is<ast::expr::Unary>() && expr.get<ast::expr::Unary>().op == operators::unary::out;
 	}
 
 	virtual UnderlyingValue impl_value_call(const type::Function &type, UnderlyingValue fn, std::span<UnderlyingValue> values) = 0;
@@ -1053,6 +1101,10 @@ struct Base {
 		for (const auto &[param, arg] :
 			 std::views::zip(funtype.parameters, expr.arguments)) {
 			auto value = visit(&arg);
+			if (!is_move(arg) && !is_out(arg)) {
+				// not an `out` or `move` so it's a const&
+				value = mkref(value, true);
+			}
 			if (value.type != param)
 				throw std::runtime_error(fmt("Argument type mismatch ", expr.location));
 			args.push_back(value.value);
@@ -1068,8 +1120,10 @@ struct Base {
 		std::vector<Value> args;
 		for (const auto &arg : expr.arguments) {
 			auto value = visit(&arg);
-			if (!value.type.is_ref)
-				value.type.is_const = true;
+			if (!is_move(arg) && !is_out(arg)) {
+				// not an `out` or `move` so it's a const&
+				value = mkref(value, true);
+			}
 			args.push_back(std::move(value));
 		}
 		std::vector<type::Type> type_args;
@@ -1102,13 +1156,17 @@ struct Base {
 
 	Value visit(const ast::expr::MemberCall &expr) {
 		auto callee_value = visit(expr.callee);
-		if (!callee_value.type.is_ref)
-			callee_value.type.is_const = true;
+		if (!is_move(*expr.callee)) {
+			// not a `move` so turn it into a reference
+			callee_value = mkref(callee_value);
+		}
 		std::vector args{std::move(callee_value)};
 		for (const auto &arg : expr.arguments) {
 			auto value = visit(&arg);
-			if (!value.type.is_ref)
-				value.type.is_const = true;
+			if (!is_move(arg) && !is_out(arg)) {
+				// not an `out` or `move` so it's a const&
+				value = mkref(value, true);
+			}
 			args.push_back(std::move(value));
 		}
 		std::vector<type::Type> type_args;
@@ -1118,10 +1176,21 @@ struct Base {
 		for (const auto &arg : args)
 			arg_types.push_back(arg.type);
 		auto function = all_function_container.get_function(this, expr.name, type_args, arg_types);
-		if (!function)
-			throw std::runtime_error(fmt("Unknown function ", expr.name,
-										 " for the supplied arguments at ",
-										 expr.location));
+		if (function)
+			goto found_one;
+		if (!args[0].type.is_const) {
+			// try finding a const& member function
+			args[0].type.is_const = true;
+			arg_types[0].is_const = true;
+			function = all_function_container.get_function(this, expr.name, type_args, arg_types);
+			if (function)
+				goto found_one;
+		}
+		throw std::runtime_error(fmt("Unknown function ", expr.name,
+									 " for the supplied arguments at ",
+									 expr.location));
+
+	found_one:
 		std::vector<UnderlyingValue> underlying_args;
 		for (const auto &arg : args)
 			underlying_args.push_back(arg.value);

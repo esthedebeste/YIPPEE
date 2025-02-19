@@ -121,7 +121,7 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		const auto llvmfn = llvm::cast<llvm::Function>(c.getCallee());
 		for (const auto &[astarg, llvmarg] : std::views::zip(
 					 function.parameters, llvmfn->args()))
-			llvmarg.setName(astarg.first.str);
+			llvmarg.setName(astarg.name.str);
 		if (!function.statement) {
 			// extern fun :)
 			return llvmfn;
@@ -135,14 +135,14 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		for (const auto &[astarg, typarg, llvmarg] : std::views::zip(
 					 function.parameters, type.parameters, llvmfn->args()))
 			if (typarg.is_ref) {
-				locals.back().members.emplace(astarg.first.str, Value{typarg, &llvmarg});
+				locals.back().members.emplace(astarg.name.str, Value{typarg, &llvmarg});
 			} else { // turn it into a reference
 				auto alloc =
-						builder->CreateAlloca(llvm_type(typarg), nullptr, astarg.first.str);
+						builder->CreateAlloca(llvm_type(typarg), nullptr, astarg.name.str);
 				builder->CreateStore(&llvmarg, alloc);
 				type::Type argtype = typarg; // copy
 				argtype.is_ref = true;
-				locals.back().members.emplace(astarg.first.str, Value{argtype, alloc});
+				locals.back().members.emplace(astarg.name.str, Value{argtype, alloc});
 			}
 		NewScopeHere nsh_postargs{&locals};
 		visit(*function.statement);

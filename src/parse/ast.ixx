@@ -80,6 +80,24 @@ export struct TypeArgument final : AstBase {
 	void summarize(std::ostream &os) const override;
 	void children(children_cb) const override;
 };
+export struct FunctionParameter final : AstBase {
+	Name name;
+	TypePtr type;
+	enum Kind {
+		in,
+		out,
+		own,
+	};
+	Kind kind;
+	FunctionParameter(const Range &location, Name name, TypePtr type, Kind kind);
+	FunctionParameter(const FunctionParameter &other);
+	FunctionParameter(FunctionParameter &&other) noexcept;
+	~FunctionParameter() override;
+	FunctionParameter &operator=(const FunctionParameter &other);
+	FunctionParameter &operator=(FunctionParameter &&other) noexcept;
+	void summarize(std::ostream &os) const override;
+	void children(children_cb) const override;
+};
 export struct Program final : AstBase {
 	std::vector<TopLevelAst> tops;
 	Program(const Range &location, std::vector<TopLevelAst> tops);
@@ -197,11 +215,11 @@ export struct Member final : AstBase {
 	void summarize(std::ostream &os) const override;
 };
 export struct MemberCall final : AstBase {
-	std::unique_ptr<ExprAst> callee;
+	ExprPtr callee;
 	std::string_view name;
 	std::vector<TypeAst> type_arguments;
 	std::vector<ExprAst> arguments;
-	MemberCall(const Range &location, std::unique_ptr<ExprAst> callee, std::string_view name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments);
+	MemberCall(const Range &location, ExprPtr callee, std::string_view name, std::vector<TypeAst> type_arguments, std::vector<ExprAst> arguments);
 	MemberCall(const MemberCall &other);
 	MemberCall(MemberCall &&other) noexcept;
 	~MemberCall() override;
@@ -353,13 +371,12 @@ namespace top {
 export struct Function final : AstBase {
 	Identifier name;
 	std::vector<TypeArgument> type_arguments;
-	using Parameter = std::pair<Name, TypeAst>;
-	std::vector<Parameter> parameters;
+	std::vector<FunctionParameter> parameters;
 	std::unique_ptr<TypeAst> return_type;
 	std::optional<std::unique_ptr<StatementAst>> statement;
 	Function(const Range &location, Identifier name,
 			 std::vector<TypeArgument> type_arguments,
-			 std::vector<Parameter> parameters, std::unique_ptr<TypeAst> return_type,
+			 std::vector<FunctionParameter> parameters, std::unique_ptr<TypeAst> return_type,
 			 std::optional<std::unique_ptr<StatementAst>> statement);
 	Function(const Function &other);
 	Function(Function &&other) noexcept;
@@ -482,7 +499,7 @@ using TypeVariant =
 		utils::variant<ast::type::Array, ast::type::Constant, ast::type::Named, ast::type::Pointer, ast::type::Primitive>;
 using AstVariant = utils::unwrap_concat_instantiate<
 		utils::variant, ExprVariant, StmtVariant, TopLevelVariant, TypeVariant,
-		utils::variant<ast::Program, ast::Name, ast::Identifier, ast::TypeArgument>>;
+		utils::variant<ast::Program, ast::Name, ast::Identifier, ast::TypeArgument, ast::FunctionParameter>>;
 template<class T>
 struct PtrMapper {
 	using type = const T *;
