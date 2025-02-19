@@ -42,7 +42,7 @@ int start(Args args) {
 		std::cerr << "writing parse tree to " << args.parse_tree << "...\n";
 		std::ofstream outfile(args.parse_tree);
 		std::vector<const ast::AstBase *> nodes;
-		for (ast::Program program : programs)
+		for (ast::Program &program : programs)
 			nodes.push_back(&program);
 		graph(nodes, outfile);
 	}
