@@ -99,6 +99,27 @@ fun C::main(): int32 {
     array[0];                                                 // 1
     array[1];                                                 // 2
     array[2];                                                 // 3
+
+    slice: int32[] := array[];
+    slice[0];                                                 // 1
+    slice[1];                                                 // 2
+    slice[2];                                                 // 3
+
+    slice: int32[] := array[1..2];
+    slice[0];                                                 // 2
+    slice[1];                                                 // 3
+
+    slice: int32[] := array[][1..2];
+    slice[0];                                                 // 2
+    slice[1];                                                 // 3
+
+    slice: int32[] .= array[][0...2];
+    slice[0];                                                 // 1
+    slice[1];                                                 // 2
+
+    std::swap<int32>(out slice[0], out slice[1]);
+    slice[0];                                                 // 2
+    slice[1];                                                 // 1
                                                               
     generic_pair := std::pair_of<int32>(71, 70);              
     generic_pair.first;                                       // 71

@@ -240,6 +240,19 @@ export struct Number final : AstBase {
 	Number &operator=(Number &&other) noexcept;
 	void summarize(std::ostream &os) const override;
 };
+export struct Slice final : AstBase {
+	bool end_inclusive;
+	std::unique_ptr<ExprAst> expr;
+	std::optional<ExprPtr> from, to;
+	Slice(const Range &location, bool end_inclusive, ExprPtr expr, std::optional<ExprPtr> from, std::optional<ExprPtr> to);
+	Slice(const Slice &other);
+	Slice(Slice &&other) noexcept;
+	~Slice() override;
+	Slice &operator=(const Slice &other);
+	Slice &operator=(Slice &&other) noexcept;
+	void children(children_cb) const override;
+	void summarize(std::ostream &os) const override;
+};
 export struct Subscript final : AstBase {
 	std::unique_ptr<ExprAst> expr, index;
 	Subscript(const Range &location, std::unique_ptr<ExprAst> expr, std::unique_ptr<ExprAst> index);
@@ -481,6 +494,17 @@ export struct Primitive final : AstBase {
 	Primitive &operator=(Primitive &&other) noexcept;
 	void summarize(std::ostream &os) const override;
 };
+export struct Slice final : AstBase {
+	TypePtr sliced;
+	Slice(const Range &location, TypePtr sliced);
+	Slice(const Slice &other);
+	Slice(Slice &&other) noexcept;
+	~Slice() override;
+	Slice &operator=(const Slice &other);
+	Slice &operator=(Slice &&other) noexcept;
+	void children(children_cb) const override;
+	void summarize(std::ostream &os) const override;
+};
 } // namespace type
 } // namespace ast
 
@@ -488,18 +512,22 @@ using ExprVariant =
 		utils::variant<ast::expr::Array, ast::expr::As, ast::expr::Binop, ast::expr::Call,
 					   ast::expr::Comparison, ast::expr::Conditional, ast::expr::Create,
 					   ast::expr::Identifier, ast::expr::Member, ast::expr::MemberCall,
-					   ast::expr::Number, ast::expr::Subscript, ast::expr::Unary>;
+					   ast::expr::Number, ast::expr::Slice, ast::expr::Subscript,
+					   ast::expr::Unary>;
 using StmtVariant =
 		utils::variant<ast::stmt::Block, ast::stmt::Expr, ast::stmt::For,
 					   ast::stmt::If, ast::stmt::Return, ast::stmt::Variable,
 					   ast::stmt::While, ast::stmt::Use>;
 using TopLevelVariant =
-		utils::variant<ast::top::Namespace, ast::top::Function, ast::top::Struct, ast::top::Use>;
+		utils::variant<ast::top::Namespace, ast::top::Function, ast::top::Struct,
+					   ast::top::Use>;
 using TypeVariant =
-		utils::variant<ast::type::Array, ast::type::Constant, ast::type::Named, ast::type::Pointer, ast::type::Primitive>;
+		utils::variant<ast::type::Array, ast::type::Constant, ast::type::Named,
+					   ast::type::Pointer, ast::type::Primitive, ast::type::Slice>;
 using AstVariant = utils::unwrap_concat_instantiate<
 		utils::variant, ExprVariant, StmtVariant, TopLevelVariant, TypeVariant,
-		utils::variant<ast::Program, ast::Name, ast::Identifier, ast::TypeArgument, ast::FunctionParameter>>;
+		utils::variant<ast::Program, ast::Name, ast::Identifier,
+					   ast::TypeArgument, ast::FunctionParameter>>;
 template<class T>
 struct PtrMapper {
 	using type = const T *;

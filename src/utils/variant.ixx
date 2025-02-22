@@ -68,10 +68,10 @@ struct variant : std::variant<Ts...> {
 	static void for_each(auto fn) {
 		(
 				[&]() {
-					constexpr auto index = index_of<Ts>();
-					if constexpr (index >= Start && index < End)
-						fn.template operator()<Ts>(index_of<Ts>());
-				}(),
+			constexpr auto index = index_of<Ts>();
+			if constexpr (index >= Start && index < End)
+				fn.template operator()<Ts>(index_of<Ts>());
+		}(),
 				...);
 	}
 	template<class Start, class EndInclusive>

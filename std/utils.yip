@@ -1,0 +1,7 @@
+namespace std;
+fun swap<T>(a: out T, b: out T): int32 {
+    tmp := a;
+    a = b;
+    b = tmp;
+    return 0;
+}

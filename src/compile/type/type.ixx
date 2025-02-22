@@ -1,10 +1,10 @@
 module;
+#include <array>
 #include <compare>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include <array>
 export module type;
 
 import utils;
@@ -161,8 +161,24 @@ export struct Primitive final {
 	}
 	[[nodiscard]] std::string mangle() const;
 };
+/**
+ * In memory, basically a
+ * struct S {
+ *	T* start,
+ *	T* end
+ * };
+ */
+export struct Slice final {
+	std::unique_ptr<Type> sliced;
+	explicit Slice(std::unique_ptr<Type> sliced);
+	Slice(const Slice &);
+	Slice &operator=(const Slice &);
+	std::strong_ordering operator<=>(const Slice &other) const;
+	bool operator==(const Slice &other) const;
+	[[nodiscard]] std::string mangle() const;
+};
 using type_variant = utils::variant<Array, Function, NamedStruct,
-									Pointer, Primitive>;
+									Pointer, Primitive, Slice>;
 export struct Type : type_variant {
 	using base = type_variant;
 	bool is_const{}, is_ref{};

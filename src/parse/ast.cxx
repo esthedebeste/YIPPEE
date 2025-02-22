@@ -220,6 +220,35 @@ void Number::summarize(std::ostream &os) const {
 	value.visit([&](auto &&v) { os << v; });
 	os << ")";
 }
+
+Slice::Slice(const Range &location, bool end_inclusive, ExprPtr expr, std::optional<ExprPtr> from, std::optional<ExprPtr> to)
+	: AstBase(location), end_inclusive(end_inclusive),
+	  expr{std::move(expr)}, from{std::move(from)}, to{std::move(to)} {}
+Slice::Slice(const Slice &other)
+	: AstBase(other), end_inclusive(other.end_inclusive),
+	  expr(clone(other.expr)), from(clone(other.from)), to(clone(other.to)) {}
+Slice::Slice(Slice &&other) noexcept = default;
+Slice::~Slice() = default;
+Slice &Slice::operator=(const Slice &other) {
+	AstBase::operator=(other);
+	end_inclusive = other.end_inclusive;
+	expr = clone(other.expr);
+	from = clone(other.from);
+	to = clone(other.to);
+	return *this;
+}
+Slice &Slice::operator=(Slice &&other) noexcept = default;
+void Slice::children(children_cb cb) const {
+	cb(to_ast_base(expr.get()));
+	if (from)
+		cb(to_ast_base(from->get()));
+	if (to)
+		cb(to_ast_base(to->get()));
+}
+void Slice::summarize(std::ostream &os) const {
+	os << "Slice(end_inclusive=" << end_inclusive << ")";
+}
+
 Subscript::Subscript(const Range &location, ExprPtr expr, ExprPtr index)
 	: AstBase(location), expr{std::move(expr)}, index{std::move(index)} {}
 Subscript::Subscript(const Subscript &other)
@@ -646,6 +675,25 @@ Primitive &Primitive::operator=(const Primitive &other) = default;
 Primitive &Primitive::operator=(Primitive &&other) noexcept = default;
 void Primitive::summarize(std::ostream &os) const {
 	os << "Primitive(" << prim.name() << ')';
+}
+
+Slice::Slice(const Range &location, TypePtr sliced)
+	: AstBase(location), sliced{std::move(sliced)} {}
+Slice::Slice(const Slice &other)
+	: AstBase(other), sliced(clone(other.sliced)) {}
+Slice::Slice(Slice &&other) noexcept = default;
+Slice::~Slice() = default;
+Slice &Slice::operator=(const Slice &other) {
+	AstBase::operator=(other);
+	sliced = clone(other.sliced);
+	return *this;
+}
+Slice &Slice::operator=(Slice &&other) noexcept = default;
+void Slice::children(children_cb cb) const {
+	cb(to_ast_base(sliced.get()));
+}
+void Slice::summarize(std::ostream &os) const {
+	os << "Slice";
 }
 } // namespace type
 Program::Program(const Range &location, std::vector<TopLevelAst> tops)

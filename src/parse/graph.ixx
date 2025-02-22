@@ -2,6 +2,7 @@ module;
 #include <functional>
 #include <ostream>
 #include <span>
+#include <cmath>
 export module ast.graph;
 import ast;
 

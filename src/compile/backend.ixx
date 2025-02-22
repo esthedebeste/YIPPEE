@@ -3,6 +3,7 @@ module;
 #include <coroutine>
 #include <functional>
 #include <generator.hpp>
+#include <map>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -523,6 +524,10 @@ struct Base {
 		auto type = visit(pointer.pointed);
 		return type::Pointer{std::make_unique<type::Type>(type)};
 	}
+	type::Type visit(const ast::type::Slice &slice) {
+		auto type = visit(slice.sliced);
+		return type::Slice{std::make_unique<type::Type>(type)};
+	}
 	type::Type visit(const ast::type::Array &array) {
 		auto member = visit(array.member);
 		return type::Array{std::make_unique<type::Type>(member), array.size};
@@ -675,7 +680,7 @@ struct Base {
 	}
 
 	using unary_generator = Value (*)(Child &, const Value &);
-	std::vector<std::pair<operation::Unary, unary_generator>> unary_operations{
+	std::map<operation::Unary, unary_generator> unary_operations{
 			std::move(builtin_unary_operations())};
 	template<const type::Type &op_t, const operators::unary op, UnderlyingValue (Child::*Lambda)(UnderlyingValue operand), const type::Type &result = op_t>
 	std::pair<operation::Unary, unary_generator> static uop() {
@@ -686,43 +691,43 @@ struct Base {
 		}));
 	}
 
-	std::vector<std::pair<operation::Unary, unary_generator>>
+	std::map<operation::Unary, unary_generator>
 	builtin_unary_operations() {
-		std::vector<std::pair<operation::Unary, unary_generator>> ops{};
+		std::map<operation::Unary, unary_generator> ops{};
 		utils::integer_range_loop<0, type::numeric.size()>([&]<size_t Index>() {
 			constexpr auto &num = type::numeric[Index];
-			ops.emplace_back(operation::Unary{num, operators::pos},
-							 static_cast<unary_generator>(+[](Child &visitor, const Value &operand) -> Value {
+			ops.emplace(operation::Unary{num, operators::pos},
+						static_cast<unary_generator>(+[](Child &visitor, const Value &operand) -> Value {
 				return operand;
 			}));
 		});
-		ops.push_back(uop<type::t_uint8, operators::b_not, &Child::unary_b_not_u8>());
-		ops.push_back(uop<type::t_uint16, operators::b_not, &Child::unary_b_not_u16>());
-		ops.push_back(uop<type::t_uint32, operators::b_not, &Child::unary_b_not_u32>());
-		ops.push_back(uop<type::t_uint64, operators::b_not, &Child::unary_b_not_u64>());
-		ops.push_back(uop<type::t_uint128, operators::b_not, &Child::unary_b_not_u128>());
+		ops.emplace(uop<type::t_uint8, operators::b_not, &Child::unary_b_not_u8>());
+		ops.emplace(uop<type::t_uint16, operators::b_not, &Child::unary_b_not_u16>());
+		ops.emplace(uop<type::t_uint32, operators::b_not, &Child::unary_b_not_u32>());
+		ops.emplace(uop<type::t_uint64, operators::b_not, &Child::unary_b_not_u64>());
+		ops.emplace(uop<type::t_uint128, operators::b_not, &Child::unary_b_not_u128>());
 
-		ops.push_back(uop<type::t_uint8, operators::neg, &Child::unary_neg_u8, type::t_int8>());
-		ops.push_back(uop<type::t_uint16, operators::neg, &Child::unary_neg_u16, type::t_int16>());
-		ops.push_back(uop<type::t_uint32, operators::neg, &Child::unary_neg_u32, type::t_int32>());
-		ops.push_back(uop<type::t_uint64, operators::neg, &Child::unary_neg_u64, type::t_int64>());
-		ops.push_back(uop<type::t_uint128, operators::neg, &Child::unary_neg_u128, type::t_int128>());
+		ops.emplace(uop<type::t_uint8, operators::neg, &Child::unary_neg_u8, type::t_int8>());
+		ops.emplace(uop<type::t_uint16, operators::neg, &Child::unary_neg_u16, type::t_int16>());
+		ops.emplace(uop<type::t_uint32, operators::neg, &Child::unary_neg_u32, type::t_int32>());
+		ops.emplace(uop<type::t_uint64, operators::neg, &Child::unary_neg_u64, type::t_int64>());
+		ops.emplace(uop<type::t_uint128, operators::neg, &Child::unary_neg_u128, type::t_int128>());
 
-		ops.push_back(uop<type::t_int8, operators::neg, &Child::unary_neg_i8>());
-		ops.push_back(uop<type::t_int16, operators::neg, &Child::unary_neg_i16>());
-		ops.push_back(uop<type::t_int32, operators::neg, &Child::unary_neg_i32>());
-		ops.push_back(uop<type::t_int64, operators::neg, &Child::unary_neg_i64>());
-		ops.push_back(uop<type::t_int128, operators::neg, &Child::unary_neg_i128>());
+		ops.emplace(uop<type::t_int8, operators::neg, &Child::unary_neg_i8>());
+		ops.emplace(uop<type::t_int16, operators::neg, &Child::unary_neg_i16>());
+		ops.emplace(uop<type::t_int32, operators::neg, &Child::unary_neg_i32>());
+		ops.emplace(uop<type::t_int64, operators::neg, &Child::unary_neg_i64>());
+		ops.emplace(uop<type::t_int128, operators::neg, &Child::unary_neg_i128>());
 
-		ops.push_back(uop<type::t_half, operators::neg, &Child::unary_neg_half>());
-		ops.push_back(uop<type::t_float, operators::neg, &Child::unary_neg_float>());
-		ops.push_back(uop<type::t_double, operators::neg, &Child::unary_neg_double>());
+		ops.emplace(uop<type::t_half, operators::neg, &Child::unary_neg_half>());
+		ops.emplace(uop<type::t_float, operators::neg, &Child::unary_neg_float>());
+		ops.emplace(uop<type::t_double, operators::neg, &Child::unary_neg_double>());
 
-		ops.push_back(uop<type::t_boolean, operators::l_not, &Child::unary_l_not_boolean>());
+		ops.emplace(uop<type::t_boolean, operators::l_not, &Child::unary_l_not_boolean>());
 		return ops;
 	}
 	using bop_generator = Value (*)(Child &, const Value &, const Value &);
-	std::vector<std::pair<operation::Binary, bop_generator>> binary_operations{
+	std::map<operation::Binary, bop_generator> binary_operations{
 			std::move(builtin_binary_operations())};
 	template<const type::Type &left, const operators::binary op, UnderlyingValue (Child::*Lambda)(UnderlyingValue lhs, UnderlyingValue rhs), const type::Type &right = left, const type::Type &result = left>
 	static std::pair<operation::Binary, bop_generator>
@@ -734,125 +739,125 @@ struct Base {
 		}));
 	}
 
-	static std::vector<std::pair<operation::Binary, bop_generator>>
+	static std::map<operation::Binary, bop_generator>
 	builtin_binary_operations() {
-		std::vector<std::pair<operation::Binary, bop_generator>> bops{};
-		bops.push_back(bop<type::t_uint8, operators::b_and, &Child::binary_b_and_u8>());
-		bops.push_back(bop<type::t_uint16, operators::b_and, &Child::binary_b_and_u16>());
-		bops.push_back(bop<type::t_uint32, operators::b_and, &Child::binary_b_and_u32>());
-		bops.push_back(bop<type::t_uint64, operators::b_and, &Child::binary_b_and_u64>());
-		bops.push_back(bop<type::t_uint128, operators::b_and, &Child::binary_b_and_u128>());
+		std::map<operation::Binary, bop_generator> bops{};
+		bops.emplace(bop<type::t_uint8, operators::b_and, &Child::binary_b_and_u8>());
+		bops.emplace(bop<type::t_uint16, operators::b_and, &Child::binary_b_and_u16>());
+		bops.emplace(bop<type::t_uint32, operators::b_and, &Child::binary_b_and_u32>());
+		bops.emplace(bop<type::t_uint64, operators::b_and, &Child::binary_b_and_u64>());
+		bops.emplace(bop<type::t_uint128, operators::b_and, &Child::binary_b_and_u128>());
 
-		bops.push_back(bop<type::t_uint8, operators::b_or, &Child::binary_b_or_u8>());
-		bops.push_back(bop<type::t_uint16, operators::b_or, &Child::binary_b_or_u16>());
-		bops.push_back(bop<type::t_uint32, operators::b_or, &Child::binary_b_or_u32>());
-		bops.push_back(bop<type::t_uint64, operators::b_or, &Child::binary_b_or_u64>());
-		bops.push_back(bop<type::t_uint128, operators::b_or, &Child::binary_b_or_u128>());
+		bops.emplace(bop<type::t_uint8, operators::b_or, &Child::binary_b_or_u8>());
+		bops.emplace(bop<type::t_uint16, operators::b_or, &Child::binary_b_or_u16>());
+		bops.emplace(bop<type::t_uint32, operators::b_or, &Child::binary_b_or_u32>());
+		bops.emplace(bop<type::t_uint64, operators::b_or, &Child::binary_b_or_u64>());
+		bops.emplace(bop<type::t_uint128, operators::b_or, &Child::binary_b_or_u128>());
 
-		bops.push_back(bop<type::t_uint8, operators::b_xor, &Child::binary_b_xor_u8>());
-		bops.push_back(bop<type::t_uint16, operators::b_xor, &Child::binary_b_xor_u16>());
-		bops.push_back(bop<type::t_uint32, operators::b_xor, &Child::binary_b_xor_u32>());
-		bops.push_back(bop<type::t_uint64, operators::b_xor, &Child::binary_b_xor_u64>());
-		bops.push_back(bop<type::t_uint128, operators::b_xor, &Child::binary_b_xor_u128>());
+		bops.emplace(bop<type::t_uint8, operators::b_xor, &Child::binary_b_xor_u8>());
+		bops.emplace(bop<type::t_uint16, operators::b_xor, &Child::binary_b_xor_u16>());
+		bops.emplace(bop<type::t_uint32, operators::b_xor, &Child::binary_b_xor_u32>());
+		bops.emplace(bop<type::t_uint64, operators::b_xor, &Child::binary_b_xor_u64>());
+		bops.emplace(bop<type::t_uint128, operators::b_xor, &Child::binary_b_xor_u128>());
 
-		bops.push_back(bop<type::t_uint8, operators::b_shl, &Child::binary_b_shl_u8>());
-		bops.push_back(bop<type::t_uint16, operators::b_shl, &Child::binary_b_shl_u16>());
-		bops.push_back(bop<type::t_uint32, operators::b_shl, &Child::binary_b_shl_u32>());
-		bops.push_back(bop<type::t_uint64, operators::b_shl, &Child::binary_b_shl_u64>());
-		bops.push_back(bop<type::t_uint128, operators::b_shl, &Child::binary_b_shl_u128>());
+		bops.emplace(bop<type::t_uint8, operators::b_shl, &Child::binary_b_shl_u8>());
+		bops.emplace(bop<type::t_uint16, operators::b_shl, &Child::binary_b_shl_u16>());
+		bops.emplace(bop<type::t_uint32, operators::b_shl, &Child::binary_b_shl_u32>());
+		bops.emplace(bop<type::t_uint64, operators::b_shl, &Child::binary_b_shl_u64>());
+		bops.emplace(bop<type::t_uint128, operators::b_shl, &Child::binary_b_shl_u128>());
 
-		bops.push_back(bop<type::t_uint8, operators::b_shr, &Child::binary_b_shr_u8>());
-		bops.push_back(bop<type::t_uint16, operators::b_shr, &Child::binary_b_shr_u16>());
-		bops.push_back(bop<type::t_uint32, operators::b_shr, &Child::binary_b_shr_u32>());
-		bops.push_back(bop<type::t_uint64, operators::b_shr, &Child::binary_b_shr_u64>());
-		bops.push_back(bop<type::t_uint128, operators::b_shr, &Child::binary_b_shr_u128>());
-		bops.push_back(bop<type::t_int8, operators::b_shr, &Child::binary_b_shr_i8>());
-		bops.push_back(bop<type::t_int16, operators::b_shr, &Child::binary_b_shr_i16>());
-		bops.push_back(bop<type::t_int32, operators::b_shr, &Child::binary_b_shr_i32>());
-		bops.push_back(bop<type::t_int64, operators::b_shr, &Child::binary_b_shr_i64>());
-		bops.push_back(bop<type::t_int128, operators::b_shr, &Child::binary_b_shr_i128>());
+		bops.emplace(bop<type::t_uint8, operators::b_shr, &Child::binary_b_shr_u8>());
+		bops.emplace(bop<type::t_uint16, operators::b_shr, &Child::binary_b_shr_u16>());
+		bops.emplace(bop<type::t_uint32, operators::b_shr, &Child::binary_b_shr_u32>());
+		bops.emplace(bop<type::t_uint64, operators::b_shr, &Child::binary_b_shr_u64>());
+		bops.emplace(bop<type::t_uint128, operators::b_shr, &Child::binary_b_shr_u128>());
+		bops.emplace(bop<type::t_int8, operators::b_shr, &Child::binary_b_shr_i8>());
+		bops.emplace(bop<type::t_int16, operators::b_shr, &Child::binary_b_shr_i16>());
+		bops.emplace(bop<type::t_int32, operators::b_shr, &Child::binary_b_shr_i32>());
+		bops.emplace(bop<type::t_int64, operators::b_shr, &Child::binary_b_shr_i64>());
+		bops.emplace(bop<type::t_int128, operators::b_shr, &Child::binary_b_shr_i128>());
 
-		bops.push_back(bop<type::t_uint8, operators::add, &Child::binary_add_u8>());
-		bops.push_back(bop<type::t_uint16, operators::add, &Child::binary_add_u16>());
-		bops.push_back(bop<type::t_uint32, operators::add, &Child::binary_add_u32>());
-		bops.push_back(bop<type::t_uint64, operators::add, &Child::binary_add_u64>());
-		bops.push_back(bop<type::t_uint128, operators::add, &Child::binary_add_u128>());
-		bops.push_back(bop<type::t_int8, operators::add, &Child::binary_add_i8>());
-		bops.push_back(bop<type::t_int16, operators::add, &Child::binary_add_i16>());
-		bops.push_back(bop<type::t_int32, operators::add, &Child::binary_add_i32>());
-		bops.push_back(bop<type::t_int64, operators::add, &Child::binary_add_i64>());
-		bops.push_back(bop<type::t_int128, operators::add, &Child::binary_add_i128>());
+		bops.emplace(bop<type::t_uint8, operators::add, &Child::binary_add_u8>());
+		bops.emplace(bop<type::t_uint16, operators::add, &Child::binary_add_u16>());
+		bops.emplace(bop<type::t_uint32, operators::add, &Child::binary_add_u32>());
+		bops.emplace(bop<type::t_uint64, operators::add, &Child::binary_add_u64>());
+		bops.emplace(bop<type::t_uint128, operators::add, &Child::binary_add_u128>());
+		bops.emplace(bop<type::t_int8, operators::add, &Child::binary_add_i8>());
+		bops.emplace(bop<type::t_int16, operators::add, &Child::binary_add_i16>());
+		bops.emplace(bop<type::t_int32, operators::add, &Child::binary_add_i32>());
+		bops.emplace(bop<type::t_int64, operators::add, &Child::binary_add_i64>());
+		bops.emplace(bop<type::t_int128, operators::add, &Child::binary_add_i128>());
 
-		bops.push_back(bop<type::t_uint8, operators::sub, &Child::binary_sub_u8>());
-		bops.push_back(bop<type::t_uint16, operators::sub, &Child::binary_sub_u16>());
-		bops.push_back(bop<type::t_uint32, operators::sub, &Child::binary_sub_u32>());
-		bops.push_back(bop<type::t_uint64, operators::sub, &Child::binary_sub_u64>());
-		bops.push_back(bop<type::t_uint128, operators::sub, &Child::binary_sub_u128>());
-		bops.push_back(bop<type::t_int8, operators::sub, &Child::binary_sub_i8>());
-		bops.push_back(bop<type::t_int16, operators::sub, &Child::binary_sub_i16>());
-		bops.push_back(bop<type::t_int32, operators::sub, &Child::binary_sub_i32>());
-		bops.push_back(bop<type::t_int64, operators::sub, &Child::binary_sub_i64>());
-		bops.push_back(bop<type::t_int128, operators::sub, &Child::binary_sub_i128>());
+		bops.emplace(bop<type::t_uint8, operators::sub, &Child::binary_sub_u8>());
+		bops.emplace(bop<type::t_uint16, operators::sub, &Child::binary_sub_u16>());
+		bops.emplace(bop<type::t_uint32, operators::sub, &Child::binary_sub_u32>());
+		bops.emplace(bop<type::t_uint64, operators::sub, &Child::binary_sub_u64>());
+		bops.emplace(bop<type::t_uint128, operators::sub, &Child::binary_sub_u128>());
+		bops.emplace(bop<type::t_int8, operators::sub, &Child::binary_sub_i8>());
+		bops.emplace(bop<type::t_int16, operators::sub, &Child::binary_sub_i16>());
+		bops.emplace(bop<type::t_int32, operators::sub, &Child::binary_sub_i32>());
+		bops.emplace(bop<type::t_int64, operators::sub, &Child::binary_sub_i64>());
+		bops.emplace(bop<type::t_int128, operators::sub, &Child::binary_sub_i128>());
 
-		bops.push_back(bop<type::t_uint8, operators::mul, &Child::binary_mul_u8>());
-		bops.push_back(bop<type::t_uint16, operators::mul, &Child::binary_mul_u16>());
-		bops.push_back(bop<type::t_uint32, operators::mul, &Child::binary_mul_u32>());
-		bops.push_back(bop<type::t_uint64, operators::mul, &Child::binary_mul_u64>());
-		bops.push_back(bop<type::t_uint128, operators::mul, &Child::binary_mul_u128>());
-		bops.push_back(bop<type::t_int8, operators::mul, &Child::binary_mul_i8>());
-		bops.push_back(bop<type::t_int16, operators::mul, &Child::binary_mul_i16>());
-		bops.push_back(bop<type::t_int32, operators::mul, &Child::binary_mul_i32>());
-		bops.push_back(bop<type::t_int64, operators::mul, &Child::binary_mul_i64>());
-		bops.push_back(bop<type::t_int128, operators::mul, &Child::binary_mul_i128>());
+		bops.emplace(bop<type::t_uint8, operators::mul, &Child::binary_mul_u8>());
+		bops.emplace(bop<type::t_uint16, operators::mul, &Child::binary_mul_u16>());
+		bops.emplace(bop<type::t_uint32, operators::mul, &Child::binary_mul_u32>());
+		bops.emplace(bop<type::t_uint64, operators::mul, &Child::binary_mul_u64>());
+		bops.emplace(bop<type::t_uint128, operators::mul, &Child::binary_mul_u128>());
+		bops.emplace(bop<type::t_int8, operators::mul, &Child::binary_mul_i8>());
+		bops.emplace(bop<type::t_int16, operators::mul, &Child::binary_mul_i16>());
+		bops.emplace(bop<type::t_int32, operators::mul, &Child::binary_mul_i32>());
+		bops.emplace(bop<type::t_int64, operators::mul, &Child::binary_mul_i64>());
+		bops.emplace(bop<type::t_int128, operators::mul, &Child::binary_mul_i128>());
 
-		bops.push_back(bop<type::t_uint8, operators::div, &Child::binary_div_u8>());
-		bops.push_back(bop<type::t_uint16, operators::div, &Child::binary_div_u16>());
-		bops.push_back(bop<type::t_uint32, operators::div, &Child::binary_div_u32>());
-		bops.push_back(bop<type::t_uint64, operators::div, &Child::binary_div_u64>());
-		bops.push_back(bop<type::t_uint128, operators::div, &Child::binary_div_u128>());
-		bops.push_back(bop<type::t_int8, operators::div, &Child::binary_div_i8>());
-		bops.push_back(bop<type::t_int16, operators::div, &Child::binary_div_i16>());
-		bops.push_back(bop<type::t_int32, operators::div, &Child::binary_div_i32>());
-		bops.push_back(bop<type::t_int64, operators::div, &Child::binary_div_i64>());
-		bops.push_back(bop<type::t_int128, operators::div, &Child::binary_div_i128>());
+		bops.emplace(bop<type::t_uint8, operators::div, &Child::binary_div_u8>());
+		bops.emplace(bop<type::t_uint16, operators::div, &Child::binary_div_u16>());
+		bops.emplace(bop<type::t_uint32, operators::div, &Child::binary_div_u32>());
+		bops.emplace(bop<type::t_uint64, operators::div, &Child::binary_div_u64>());
+		bops.emplace(bop<type::t_uint128, operators::div, &Child::binary_div_u128>());
+		bops.emplace(bop<type::t_int8, operators::div, &Child::binary_div_i8>());
+		bops.emplace(bop<type::t_int16, operators::div, &Child::binary_div_i16>());
+		bops.emplace(bop<type::t_int32, operators::div, &Child::binary_div_i32>());
+		bops.emplace(bop<type::t_int64, operators::div, &Child::binary_div_i64>());
+		bops.emplace(bop<type::t_int128, operators::div, &Child::binary_div_i128>());
 
-		bops.push_back(bop<type::t_uint8, operators::mod, &Child::binary_mod_u8>());
-		bops.push_back(bop<type::t_uint16, operators::mod, &Child::binary_mod_u16>());
-		bops.push_back(bop<type::t_uint32, operators::mod, &Child::binary_mod_u32>());
-		bops.push_back(bop<type::t_uint64, operators::mod, &Child::binary_mod_u64>());
-		bops.push_back(bop<type::t_uint128, operators::mod, &Child::binary_mod_u128>());
-		bops.push_back(bop<type::t_int8, operators::mod, &Child::binary_mod_i8>());
-		bops.push_back(bop<type::t_int16, operators::mod, &Child::binary_mod_i16>());
-		bops.push_back(bop<type::t_int32, operators::mod, &Child::binary_mod_i32>());
-		bops.push_back(bop<type::t_int64, operators::mod, &Child::binary_mod_i64>());
-		bops.push_back(bop<type::t_int128, operators::mod, &Child::binary_mod_i128>());
+		bops.emplace(bop<type::t_uint8, operators::mod, &Child::binary_mod_u8>());
+		bops.emplace(bop<type::t_uint16, operators::mod, &Child::binary_mod_u16>());
+		bops.emplace(bop<type::t_uint32, operators::mod, &Child::binary_mod_u32>());
+		bops.emplace(bop<type::t_uint64, operators::mod, &Child::binary_mod_u64>());
+		bops.emplace(bop<type::t_uint128, operators::mod, &Child::binary_mod_u128>());
+		bops.emplace(bop<type::t_int8, operators::mod, &Child::binary_mod_i8>());
+		bops.emplace(bop<type::t_int16, operators::mod, &Child::binary_mod_i16>());
+		bops.emplace(bop<type::t_int32, operators::mod, &Child::binary_mod_i32>());
+		bops.emplace(bop<type::t_int64, operators::mod, &Child::binary_mod_i64>());
+		bops.emplace(bop<type::t_int128, operators::mod, &Child::binary_mod_i128>());
 
-		bops.push_back(bop<type::t_half, operators::add, &Child::binary_add_half>());
-		bops.push_back(bop<type::t_float, operators::add, &Child::binary_add_float>());
-		bops.push_back(bop<type::t_double, operators::add, &Child::binary_add_double>());
+		bops.emplace(bop<type::t_half, operators::add, &Child::binary_add_half>());
+		bops.emplace(bop<type::t_float, operators::add, &Child::binary_add_float>());
+		bops.emplace(bop<type::t_double, operators::add, &Child::binary_add_double>());
 
-		bops.push_back(bop<type::t_half, operators::sub, &Child::binary_sub_half>());
-		bops.push_back(bop<type::t_float, operators::sub, &Child::binary_sub_float>());
-		bops.push_back(bop<type::t_double, operators::sub, &Child::binary_sub_double>());
+		bops.emplace(bop<type::t_half, operators::sub, &Child::binary_sub_half>());
+		bops.emplace(bop<type::t_float, operators::sub, &Child::binary_sub_float>());
+		bops.emplace(bop<type::t_double, operators::sub, &Child::binary_sub_double>());
 
-		bops.push_back(bop<type::t_half, operators::mul, &Child::binary_mul_half>());
-		bops.push_back(bop<type::t_float, operators::mul, &Child::binary_mul_float>());
-		bops.push_back(bop<type::t_double, operators::mul, &Child::binary_mul_double>());
+		bops.emplace(bop<type::t_half, operators::mul, &Child::binary_mul_half>());
+		bops.emplace(bop<type::t_float, operators::mul, &Child::binary_mul_float>());
+		bops.emplace(bop<type::t_double, operators::mul, &Child::binary_mul_double>());
 
-		bops.push_back(bop<type::t_half, operators::div, &Child::binary_div_half>());
-		bops.push_back(bop<type::t_float, operators::div, &Child::binary_div_float>());
-		bops.push_back(bop<type::t_double, operators::div, &Child::binary_div_double>());
+		bops.emplace(bop<type::t_half, operators::div, &Child::binary_div_half>());
+		bops.emplace(bop<type::t_float, operators::div, &Child::binary_div_float>());
+		bops.emplace(bop<type::t_double, operators::div, &Child::binary_div_double>());
 
-		bops.push_back(bop<type::t_half, operators::mod, &Child::binary_mod_half>());
-		bops.push_back(bop<type::t_float, operators::mod, &Child::binary_mod_float>());
-		bops.push_back(bop<type::t_double, operators::mod, &Child::binary_mod_double>());
+		bops.emplace(bop<type::t_half, operators::mod, &Child::binary_mod_half>());
+		bops.emplace(bop<type::t_float, operators::mod, &Child::binary_mod_float>());
+		bops.emplace(bop<type::t_double, operators::mod, &Child::binary_mod_double>());
 
-		bops.push_back(bop<type::t_float, operators::pow, &Child::binary_pow_float>());
-		bops.push_back(bop<type::t_double, operators::pow, &Child::binary_pow_double>());
+		bops.emplace(bop<type::t_float, operators::pow, &Child::binary_pow_float>());
+		bops.emplace(bop<type::t_double, operators::pow, &Child::binary_pow_double>());
 		return bops;
 	}
 	using comparison_generator = bop_generator;
-	std::vector<std::pair<operation::Comparison, comparison_generator>>
+	std::map<operation::Comparison, comparison_generator>
 			comparison_operations{std::move(builtin_comparison_operations())};
 	template<const type::Type &left, const operators::comparison op, UnderlyingValue (Child::*Lambda)(UnderlyingValue lhs, UnderlyingValue rhs), const type::Type &right = left, const type::Type &result = left>
 	static std::pair<operation::Comparison, comparison_generator>
@@ -865,93 +870,93 @@ struct Base {
 		}));
 	}
 
-	std::vector<std::pair<operation::Comparison, comparison_generator>>
+	std::map<operation::Comparison, comparison_generator>
 	builtin_comparison_operations() {
-		std::vector<std::pair<operation::Comparison, comparison_generator>> cops{};
+		std::map<operation::Comparison, comparison_generator> cops{};
 
-		cops.push_back(cop<type::t_uint8, operators::less, &Child::comparison_less_u8>());
-		cops.push_back(cop<type::t_uint16, operators::less, &Child::comparison_less_u16>());
-		cops.push_back(cop<type::t_uint32, operators::less, &Child::comparison_less_u32>());
-		cops.push_back(cop<type::t_uint64, operators::less, &Child::comparison_less_u64>());
-		cops.push_back(cop<type::t_uint128, operators::less, &Child::comparison_less_u128>());
-		cops.push_back(cop<type::t_int8, operators::less, &Child::comparison_less_i8>());
-		cops.push_back(cop<type::t_int16, operators::less, &Child::comparison_less_i16>());
-		cops.push_back(cop<type::t_int32, operators::less, &Child::comparison_less_i32>());
-		cops.push_back(cop<type::t_int64, operators::less, &Child::comparison_less_i64>());
-		cops.push_back(cop<type::t_int128, operators::less, &Child::comparison_less_i128>());
-		cops.push_back(cop<type::t_half, operators::less, &Child::comparison_less_half>());
-		cops.push_back(cop<type::t_float, operators::less, &Child::comparison_less_float>());
-		cops.push_back(cop<type::t_double, operators::less, &Child::comparison_less_double>());
+		cops.emplace(cop<type::t_uint8, operators::less, &Child::comparison_less_u8>());
+		cops.emplace(cop<type::t_uint16, operators::less, &Child::comparison_less_u16>());
+		cops.emplace(cop<type::t_uint32, operators::less, &Child::comparison_less_u32>());
+		cops.emplace(cop<type::t_uint64, operators::less, &Child::comparison_less_u64>());
+		cops.emplace(cop<type::t_uint128, operators::less, &Child::comparison_less_u128>());
+		cops.emplace(cop<type::t_int8, operators::less, &Child::comparison_less_i8>());
+		cops.emplace(cop<type::t_int16, operators::less, &Child::comparison_less_i16>());
+		cops.emplace(cop<type::t_int32, operators::less, &Child::comparison_less_i32>());
+		cops.emplace(cop<type::t_int64, operators::less, &Child::comparison_less_i64>());
+		cops.emplace(cop<type::t_int128, operators::less, &Child::comparison_less_i128>());
+		cops.emplace(cop<type::t_half, operators::less, &Child::comparison_less_half>());
+		cops.emplace(cop<type::t_float, operators::less, &Child::comparison_less_float>());
+		cops.emplace(cop<type::t_double, operators::less, &Child::comparison_less_double>());
 
-		cops.push_back(cop<type::t_uint8, operators::less_eq, &Child::comparison_less_eq_u8>());
-		cops.push_back(cop<type::t_uint16, operators::less_eq, &Child::comparison_less_eq_u16>());
-		cops.push_back(cop<type::t_uint32, operators::less_eq, &Child::comparison_less_eq_u32>());
-		cops.push_back(cop<type::t_uint64, operators::less_eq, &Child::comparison_less_eq_u64>());
-		cops.push_back(cop<type::t_uint128, operators::less_eq, &Child::comparison_less_eq_u128>());
-		cops.push_back(cop<type::t_int8, operators::less_eq, &Child::comparison_less_eq_i8>());
-		cops.push_back(cop<type::t_int16, operators::less_eq, &Child::comparison_less_eq_i16>());
-		cops.push_back(cop<type::t_int32, operators::less_eq, &Child::comparison_less_eq_i32>());
-		cops.push_back(cop<type::t_int64, operators::less_eq, &Child::comparison_less_eq_i64>());
-		cops.push_back(cop<type::t_int128, operators::less_eq, &Child::comparison_less_eq_i128>());
-		cops.push_back(cop<type::t_half, operators::less_eq, &Child::comparison_less_eq_half>());
-		cops.push_back(cop<type::t_float, operators::less_eq, &Child::comparison_less_eq_float>());
-		cops.push_back(cop<type::t_double, operators::less_eq, &Child::comparison_less_eq_double>());
+		cops.emplace(cop<type::t_uint8, operators::less_eq, &Child::comparison_less_eq_u8>());
+		cops.emplace(cop<type::t_uint16, operators::less_eq, &Child::comparison_less_eq_u16>());
+		cops.emplace(cop<type::t_uint32, operators::less_eq, &Child::comparison_less_eq_u32>());
+		cops.emplace(cop<type::t_uint64, operators::less_eq, &Child::comparison_less_eq_u64>());
+		cops.emplace(cop<type::t_uint128, operators::less_eq, &Child::comparison_less_eq_u128>());
+		cops.emplace(cop<type::t_int8, operators::less_eq, &Child::comparison_less_eq_i8>());
+		cops.emplace(cop<type::t_int16, operators::less_eq, &Child::comparison_less_eq_i16>());
+		cops.emplace(cop<type::t_int32, operators::less_eq, &Child::comparison_less_eq_i32>());
+		cops.emplace(cop<type::t_int64, operators::less_eq, &Child::comparison_less_eq_i64>());
+		cops.emplace(cop<type::t_int128, operators::less_eq, &Child::comparison_less_eq_i128>());
+		cops.emplace(cop<type::t_half, operators::less_eq, &Child::comparison_less_eq_half>());
+		cops.emplace(cop<type::t_float, operators::less_eq, &Child::comparison_less_eq_float>());
+		cops.emplace(cop<type::t_double, operators::less_eq, &Child::comparison_less_eq_double>());
 
-		cops.push_back(cop<type::t_uint8, operators::greater, &Child::comparison_greater_u8>());
-		cops.push_back(cop<type::t_uint16, operators::greater, &Child::comparison_greater_u16>());
-		cops.push_back(cop<type::t_uint32, operators::greater, &Child::comparison_greater_u32>());
-		cops.push_back(cop<type::t_uint64, operators::greater, &Child::comparison_greater_u64>());
-		cops.push_back(cop<type::t_uint128, operators::greater, &Child::comparison_greater_u128>());
-		cops.push_back(cop<type::t_int8, operators::greater, &Child::comparison_greater_i8>());
-		cops.push_back(cop<type::t_int16, operators::greater, &Child::comparison_greater_i16>());
-		cops.push_back(cop<type::t_int32, operators::greater, &Child::comparison_greater_i32>());
-		cops.push_back(cop<type::t_int64, operators::greater, &Child::comparison_greater_i64>());
-		cops.push_back(cop<type::t_int128, operators::greater, &Child::comparison_greater_i128>());
-		cops.push_back(cop<type::t_half, operators::greater, &Child::comparison_greater_half>());
-		cops.push_back(cop<type::t_float, operators::greater, &Child::comparison_greater_float>());
-		cops.push_back(cop<type::t_double, operators::greater, &Child::comparison_greater_double>());
+		cops.emplace(cop<type::t_uint8, operators::greater, &Child::comparison_greater_u8>());
+		cops.emplace(cop<type::t_uint16, operators::greater, &Child::comparison_greater_u16>());
+		cops.emplace(cop<type::t_uint32, operators::greater, &Child::comparison_greater_u32>());
+		cops.emplace(cop<type::t_uint64, operators::greater, &Child::comparison_greater_u64>());
+		cops.emplace(cop<type::t_uint128, operators::greater, &Child::comparison_greater_u128>());
+		cops.emplace(cop<type::t_int8, operators::greater, &Child::comparison_greater_i8>());
+		cops.emplace(cop<type::t_int16, operators::greater, &Child::comparison_greater_i16>());
+		cops.emplace(cop<type::t_int32, operators::greater, &Child::comparison_greater_i32>());
+		cops.emplace(cop<type::t_int64, operators::greater, &Child::comparison_greater_i64>());
+		cops.emplace(cop<type::t_int128, operators::greater, &Child::comparison_greater_i128>());
+		cops.emplace(cop<type::t_half, operators::greater, &Child::comparison_greater_half>());
+		cops.emplace(cop<type::t_float, operators::greater, &Child::comparison_greater_float>());
+		cops.emplace(cop<type::t_double, operators::greater, &Child::comparison_greater_double>());
 
-		cops.push_back(cop<type::t_uint8, operators::greater_eq, &Child::comparison_greater_eq_u8>());
-		cops.push_back(cop<type::t_uint16, operators::greater_eq, &Child::comparison_greater_eq_u16>());
-		cops.push_back(cop<type::t_uint32, operators::greater_eq, &Child::comparison_greater_eq_u32>());
-		cops.push_back(cop<type::t_uint64, operators::greater_eq, &Child::comparison_greater_eq_u64>());
-		cops.push_back(cop<type::t_uint128, operators::greater_eq, &Child::comparison_greater_eq_u128>());
-		cops.push_back(cop<type::t_int8, operators::greater_eq, &Child::comparison_greater_eq_i8>());
-		cops.push_back(cop<type::t_int16, operators::greater_eq, &Child::comparison_greater_eq_i16>());
-		cops.push_back(cop<type::t_int32, operators::greater_eq, &Child::comparison_greater_eq_i32>());
-		cops.push_back(cop<type::t_int64, operators::greater_eq, &Child::comparison_greater_eq_i64>());
-		cops.push_back(cop<type::t_int128, operators::greater_eq, &Child::comparison_greater_eq_i128>());
-		cops.push_back(cop<type::t_half, operators::greater_eq, &Child::comparison_greater_eq_half>());
-		cops.push_back(cop<type::t_float, operators::greater_eq, &Child::comparison_greater_eq_float>());
-		cops.push_back(cop<type::t_double, operators::greater_eq, &Child::comparison_greater_eq_double>());
+		cops.emplace(cop<type::t_uint8, operators::greater_eq, &Child::comparison_greater_eq_u8>());
+		cops.emplace(cop<type::t_uint16, operators::greater_eq, &Child::comparison_greater_eq_u16>());
+		cops.emplace(cop<type::t_uint32, operators::greater_eq, &Child::comparison_greater_eq_u32>());
+		cops.emplace(cop<type::t_uint64, operators::greater_eq, &Child::comparison_greater_eq_u64>());
+		cops.emplace(cop<type::t_uint128, operators::greater_eq, &Child::comparison_greater_eq_u128>());
+		cops.emplace(cop<type::t_int8, operators::greater_eq, &Child::comparison_greater_eq_i8>());
+		cops.emplace(cop<type::t_int16, operators::greater_eq, &Child::comparison_greater_eq_i16>());
+		cops.emplace(cop<type::t_int32, operators::greater_eq, &Child::comparison_greater_eq_i32>());
+		cops.emplace(cop<type::t_int64, operators::greater_eq, &Child::comparison_greater_eq_i64>());
+		cops.emplace(cop<type::t_int128, operators::greater_eq, &Child::comparison_greater_eq_i128>());
+		cops.emplace(cop<type::t_half, operators::greater_eq, &Child::comparison_greater_eq_half>());
+		cops.emplace(cop<type::t_float, operators::greater_eq, &Child::comparison_greater_eq_float>());
+		cops.emplace(cop<type::t_double, operators::greater_eq, &Child::comparison_greater_eq_double>());
 
-		cops.push_back(cop<type::t_uint8, operators::eq_eq, &Child::comparison_eq_eq_u8>());
-		cops.push_back(cop<type::t_uint16, operators::eq_eq, &Child::comparison_eq_eq_u16>());
-		cops.push_back(cop<type::t_uint32, operators::eq_eq, &Child::comparison_eq_eq_u32>());
-		cops.push_back(cop<type::t_uint64, operators::eq_eq, &Child::comparison_eq_eq_u64>());
-		cops.push_back(cop<type::t_uint128, operators::eq_eq, &Child::comparison_eq_eq_u128>());
-		cops.push_back(cop<type::t_int8, operators::eq_eq, &Child::comparison_eq_eq_i8>());
-		cops.push_back(cop<type::t_int16, operators::eq_eq, &Child::comparison_eq_eq_i16>());
-		cops.push_back(cop<type::t_int32, operators::eq_eq, &Child::comparison_eq_eq_i32>());
-		cops.push_back(cop<type::t_int64, operators::eq_eq, &Child::comparison_eq_eq_i64>());
-		cops.push_back(cop<type::t_int128, operators::eq_eq, &Child::comparison_eq_eq_i128>());
-		cops.push_back(cop<type::t_half, operators::eq_eq, &Child::comparison_eq_eq_half>());
-		cops.push_back(cop<type::t_float, operators::eq_eq, &Child::comparison_eq_eq_float>());
-		cops.push_back(cop<type::t_double, operators::eq_eq, &Child::comparison_eq_eq_double>());
+		cops.emplace(cop<type::t_uint8, operators::eq_eq, &Child::comparison_eq_eq_u8>());
+		cops.emplace(cop<type::t_uint16, operators::eq_eq, &Child::comparison_eq_eq_u16>());
+		cops.emplace(cop<type::t_uint32, operators::eq_eq, &Child::comparison_eq_eq_u32>());
+		cops.emplace(cop<type::t_uint64, operators::eq_eq, &Child::comparison_eq_eq_u64>());
+		cops.emplace(cop<type::t_uint128, operators::eq_eq, &Child::comparison_eq_eq_u128>());
+		cops.emplace(cop<type::t_int8, operators::eq_eq, &Child::comparison_eq_eq_i8>());
+		cops.emplace(cop<type::t_int16, operators::eq_eq, &Child::comparison_eq_eq_i16>());
+		cops.emplace(cop<type::t_int32, operators::eq_eq, &Child::comparison_eq_eq_i32>());
+		cops.emplace(cop<type::t_int64, operators::eq_eq, &Child::comparison_eq_eq_i64>());
+		cops.emplace(cop<type::t_int128, operators::eq_eq, &Child::comparison_eq_eq_i128>());
+		cops.emplace(cop<type::t_half, operators::eq_eq, &Child::comparison_eq_eq_half>());
+		cops.emplace(cop<type::t_float, operators::eq_eq, &Child::comparison_eq_eq_float>());
+		cops.emplace(cop<type::t_double, operators::eq_eq, &Child::comparison_eq_eq_double>());
 
-		cops.push_back(cop<type::t_uint8, operators::not_equal, &Child::comparison_not_equal_u8>());
-		cops.push_back(cop<type::t_uint16, operators::not_equal, &Child::comparison_not_equal_u16>());
-		cops.push_back(cop<type::t_uint32, operators::not_equal, &Child::comparison_not_equal_u32>());
-		cops.push_back(cop<type::t_uint64, operators::not_equal, &Child::comparison_not_equal_u64>());
-		cops.push_back(cop<type::t_uint128, operators::not_equal, &Child::comparison_not_equal_u128>());
-		cops.push_back(cop<type::t_int8, operators::not_equal, &Child::comparison_not_equal_i8>());
-		cops.push_back(cop<type::t_int16, operators::not_equal, &Child::comparison_not_equal_i16>());
-		cops.push_back(cop<type::t_int32, operators::not_equal, &Child::comparison_not_equal_i32>());
-		cops.push_back(cop<type::t_int64, operators::not_equal, &Child::comparison_not_equal_i64>());
-		cops.push_back(cop<type::t_int128, operators::not_equal, &Child::comparison_not_equal_i128>());
-		cops.push_back(cop<type::t_half, operators::not_equal, &Child::comparison_not_equal_half>());
-		cops.push_back(cop<type::t_float, operators::not_equal, &Child::comparison_not_equal_float>());
-		cops.push_back(cop<type::t_double, operators::not_equal, &Child::comparison_not_equal_double>());
+		cops.emplace(cop<type::t_uint8, operators::not_equal, &Child::comparison_not_equal_u8>());
+		cops.emplace(cop<type::t_uint16, operators::not_equal, &Child::comparison_not_equal_u16>());
+		cops.emplace(cop<type::t_uint32, operators::not_equal, &Child::comparison_not_equal_u32>());
+		cops.emplace(cop<type::t_uint64, operators::not_equal, &Child::comparison_not_equal_u64>());
+		cops.emplace(cop<type::t_uint128, operators::not_equal, &Child::comparison_not_equal_u128>());
+		cops.emplace(cop<type::t_int8, operators::not_equal, &Child::comparison_not_equal_i8>());
+		cops.emplace(cop<type::t_int16, operators::not_equal, &Child::comparison_not_equal_i16>());
+		cops.emplace(cop<type::t_int32, operators::not_equal, &Child::comparison_not_equal_i32>());
+		cops.emplace(cop<type::t_int64, operators::not_equal, &Child::comparison_not_equal_i64>());
+		cops.emplace(cop<type::t_int128, operators::not_equal, &Child::comparison_not_equal_i128>());
+		cops.emplace(cop<type::t_half, operators::not_equal, &Child::comparison_not_equal_half>());
+		cops.emplace(cop<type::t_float, operators::not_equal, &Child::comparison_not_equal_float>());
+		cops.emplace(cop<type::t_double, operators::not_equal, &Child::comparison_not_equal_double>());
 		return cops;
 	}
 
@@ -984,14 +989,10 @@ struct Base {
 		auto lvalue = visit(expr.left);
 		auto rvalue = visit(expr.right);
 		Child &child_ref = *static_cast<Child *>(this);
-		for (auto &[op, gen] : binary_operations) {
-			auto ltype_loaded = lvalue.type, rtype_loaded = rvalue.type;
-			ltype_loaded.is_ref = ltype_loaded.is_const = rtype_loaded.is_ref = rtype_loaded.is_const = false;
-			if (op.op == expr.op && op.left == ltype_loaded &&
-				op.right == rtype_loaded) {
-				return gen(child_ref, deref(lvalue), deref(rvalue));
-			}
-		}
+		auto ltype_loaded = lvalue.type, rtype_loaded = rvalue.type;
+		ltype_loaded.is_ref = ltype_loaded.is_const = rtype_loaded.is_ref = rtype_loaded.is_const = false;
+		if (auto it = binary_operations.find(operation::Binary{ltype_loaded, rtype_loaded, expr.op}); it != binary_operations.end())
+			return it->second(child_ref, deref(lvalue), deref(rvalue));
 		std::string_view op_str = string(expr.op);
 		if (!is_move(*expr.left))
 			// not a `move` so turn it into a reference
@@ -1053,9 +1054,11 @@ struct Base {
 		if (expr.op == operators::unary::move) {
 			return deref(operand, true);
 		}
-		if (expr.op == operators::unary::out)
+		if (expr.op == operators::unary::out) {
 			if (!operand.type.is_ref || operand.type.is_const)
 				throw std::runtime_error("can't `out` a value that isn't a mutable reference");
+			return operand;
+		}
 		for (auto &[op, gen] : unary_operations) {
 			if (op.op == expr.op && op.operand == operand.type) {
 				return gen(child_ref, operand);
@@ -1231,11 +1234,13 @@ struct Base {
 		return Value{type, alloca};
 	}
 
+	virtual UnderlyingValue impl_arr_ref_start_ref(const type::Array &array_type, UnderlyingValue arr_ref) = 0;
+	virtual UnderlyingValue impl_slice_start_ptr(const type::Slice &slice_type, UnderlyingValue slice_ref) = 0;
+	virtual UnderlyingValue impl_slice_end_ptr(const type::Slice &slice_type, UnderlyingValue slice_ref) = 0;
+	virtual UnderlyingValue impl_ptrdiff(const type::Type &pointed_type, UnderlyingValue left, UnderlyingValue right) = 0;
 
-	virtual UnderlyingValue impl_subscript_ptr(const type::Type &pointed_type, UnderlyingValue pointer, UnderlyingValue index) = 0;
-	virtual UnderlyingValue impl_subscript_arr_ref(const type::Array &array_type, UnderlyingValue arr_ref, UnderlyingValue index) = 0;
+	virtual UnderlyingValue impl_subscript_ptr(const type::Type &pointed_type, UnderlyingValue ptr, UnderlyingValue index) = 0;
 	Value visit(const ast::expr::Subscript &expr) {
-		// todo fix
 		auto value = visit(expr.expr);
 		auto index = deref(visit(expr.index));
 		if (!index.type.is<type::Primitive>())
@@ -1243,27 +1248,92 @@ struct Base {
 		auto prim = index.type.get<type::Primitive>();
 		if (!prim.is_integral())
 			throw std::runtime_error(fmt("Index must be an integer type ", expr.location));
+		type::Type member_type = prim;
+		UnderlyingValue first_ref;
 		if (value.type.is<type::Pointer>()) {
 			value = deref(value); // make sure it's a pointer and not a ref-to-ptr
 			const auto &pointer_type = value.type.get<type::Pointer>();
-			type::Type member_type = *pointer_type.pointed;
-			member_type.is_ref = false;
-			member_type.is_const = value.type.is_const;
-			auto gep = static_cast<Child *>(this)->impl_subscript_ptr(member_type, value.value, index.value);
-			member_type.is_ref = true;
-			return Value{member_type, gep};
-		}
-		if (value.type.is<type::Array>()) {
+			member_type = *pointer_type.pointed;
+			first_ref = std::move(value.value);
+		} else if (value.type.is<type::Array>()) {
 			value = mkref(value);
 			const auto &array_type = value.type.get<type::Array>();
-			type::Type member_type = *array_type.member;
-			member_type.is_ref = true;
-			member_type.is_const = value.type.is_const;
-			auto gep = static_cast<Child *>(this)->impl_subscript_arr_ref(array_type, value.value, index.value);
-			return Value{member_type, gep};
+			member_type = *array_type.member;
+			first_ref = static_cast<Child *>(this)->impl_arr_ref_start_ref(array_type, value.value);
+		} else if (value.type.is<type::Slice>()) {
+			value = mkref(value);
+			const auto &slice_type = value.type.get<type::Slice>();
+			member_type = *slice_type.sliced;
+			first_ref = static_cast<Child *>(this)->impl_slice_start_ptr(slice_type, value.value);
+		} else
+			throw std::runtime_error(
+					fmt("Cannot subscript non-array/pointer/slice types ", expr.location));
+		member_type.is_const = value.type.is_const;
+		member_type.is_ref = false;
+		auto v = static_cast<Child *>(this)->impl_subscript_ptr(member_type, first_ref, index.value);
+		member_type.is_ref = true;
+		return Value{member_type, v};
+	}
+
+	virtual UnderlyingValue impl_slice_ptr(const type::Slice &slice_type, UnderlyingValue from, UnderlyingValue to) = 0;
+	Value visit(const ast::expr::Slice &expr) {
+		auto value = visit(expr.expr);
+		std::optional<Value> from{};
+		if (expr.from)
+			from = deref(visit(*expr.from));
+		std::optional<Value> to{};
+		if (expr.to)
+			to = deref(visit(*expr.to));
+		if (from && to && from->type != to->type)
+			throw std::runtime_error(fmt("Slice indexes must be of the same type ", expr.location));
+		if (from && !from->type.is<type::Primitive>() || to && !to->type.is<type::Primitive>())
+			throw std::runtime_error(fmt("Slice index must be an integer type ", expr.location));
+		std::optional<type::Primitive> prim{};
+		if (from)
+			prim = from->type.get<type::Primitive>();
+		else if (to)
+			prim = to->type.get<type::Primitive>();
+		if (prim && !prim->is_integral())
+			throw std::runtime_error(fmt("Slice index must be an integer type ", expr.location));
+		if (to && expr.end_inclusive) {
+			auto op = binary_operations.at(operation::Binary{*prim, *prim, operators::add});
+			auto one = impl_const_int32(1);
+			one = impl_numeric_convert(one, type::int32, *prim);
+			to = op(*static_cast<Child *>(this), *to, Value{*prim, one});
 		}
-		throw std::runtime_error(
-				fmt("Cannot subscript non-array/pointer types ", expr.location));
+		std::unique_ptr<type::Type> member_type = nullptr;
+		UnderlyingValue first_ref;
+		UnderlyingValue end_ref;
+		if (value.type.is<type::Pointer>()) {
+			value = deref(value); // make sure it's a pointer and not a ref-to-ptr
+			first_ref = std::move(value.value);
+			member_type = std::move(value.type.get<type::Pointer>().pointed);
+			if (!to)
+				throw std::runtime_error("Can't slice a pointer without providing an end index");
+		} else if (value.type.is<type::Array>()) {
+			value = mkref(value);
+			first_ref = static_cast<Child *>(this)->impl_arr_ref_start_ref(value.type.get<type::Array>(), value.value);
+			member_type = std::move(value.type.get<type::Array>().member);
+			if (!to)
+				end_ref = static_cast<Child *>(this)->impl_subscript_ptr(*member_type, first_ref, impl_const_uintmax(value.type.get<type::Array>().size));
+		} else if (value.type.is<type::Slice>()) {
+			value = mkref(value); // make sure it's a ref-to-slice
+			if (!prim)
+				return value;
+			if (!to)
+				end_ref = static_cast<Child *>(this)->impl_slice_end_ptr(value.type.get<type::Slice>(), value.value);
+			first_ref = static_cast<Child *>(this)->impl_slice_start_ptr(value.type.get<type::Slice>(), value.value);
+			member_type = std::move(value.type.get<type::Slice>().sliced);
+		} else
+			throw std::runtime_error(
+					fmt("Cannot subscript non-array/pointer/slice types ", expr.location));
+		member_type->is_const = value.type.is_const;
+		member_type->is_ref = false;
+		type::Slice slice_type{clone(member_type)};
+		auto v = static_cast<Child *>(this)->impl_slice_ptr(slice_type,
+															from ? static_cast<Child *>(this)->impl_subscript_ptr(*member_type, first_ref, from->value) : first_ref,
+															to ? static_cast<Child *>(this)->impl_subscript_ptr(*member_type, first_ref, to->value) : end_ref);
+		return Value{{slice_type, value.type.is_const, false}, v};
 	}
 
 	virtual UnderlyingValue impl_array(const type::Array &type, std::span<UnderlyingValue> members) = 0;
@@ -1337,6 +1407,7 @@ struct Base {
 	}
 
 	virtual UnderlyingValue impl_const_int32(int32_t value) = 0;
+	virtual UnderlyingValue impl_const_uintmax(std::uintmax_t value) = 0;
 	virtual UnderlyingValue impl_const_double(double value) = 0;
 	Value visit(const ast::expr::Number &expr) {
 		return expr.value.visit(

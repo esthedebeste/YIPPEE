@@ -205,12 +205,16 @@ struct Parser : reader::Reader {
 		ws();
 		return ast::type::Pointer(get_range(loc_start), std::make_unique<ast::TypeAst>(type));
 	}
-	ast::type::Array parse_array_type(ast::TypeAst type) {
+	ast::TypeAst parse_array_type(ast::TypeAst type) {
 		const auto loc_start = get_loc();
 		ws();
 		auto size = parse_literal_expr();
-		if (!size)
-			error("Expected array size (a number)");
+		if (!size) {
+			ws();
+			if (!try_consume("]"))
+				error("Expected array size (a number)");
+			return ast::type::Slice(get_range(loc_start), std::make_unique<ast::TypeAst>(type));
+		}
 		if (!size->value.is<ast::expr::Number::uint_t>())
 			error("Expected array size to be an integer");
 		ws();
@@ -467,15 +471,26 @@ struct Parser : reader::Reader {
 				std::move(arguments)};
 	}
 
-	ast::expr::Subscript parse_subscript(ast::ExprAst subject) {
+	ast::ExprAst parse_subscript(ast::ExprAst subject) {
 		auto loc_start = get_loc();
-		auto index = parse_expr();
-		if (!index)
-			error("Expected index expression");
+		auto from = parse_expr();
 		ws();
+		bool exclusive = try_consume("...");
+		if (exclusive || try_consume("..") || !from) {
+			auto to = parse_expr();
+			ws();
+			expect("]");
+			return ast::expr::Slice{get_range(loc_start), !exclusive,
+									std::make_unique<ast::ExprAst>(subject), from.transform([](const auto &x) {
+				return std::make_unique<ast::ExprAst>(x);
+			}),
+									to.transform([](const auto &x) {
+				return std::make_unique<ast::ExprAst>(x);
+			})};
+		}
 		expect("]");
-		return {get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
-				std::make_unique<ast::ExprAst>(std::move(*index))};
+		return ast::expr::Subscript{get_range(loc_start), std::make_unique<ast::ExprAst>(std::move(subject)),
+									std::make_unique<ast::ExprAst>(std::move(*from))};
 	}
 
 	ast::ExprAst parse_member(ast::ExprAst subject) {
@@ -522,6 +537,8 @@ struct Parser : reader::Reader {
 					subject = parse_subscript(std::move(subject));
 					break;
 				case '.':
+					if (peek(1) == '.')
+						return subject; // two consecutive dots means it's a range
 					consume();
 					subject = parse_member(std::move(subject));
 					break;
@@ -817,7 +834,8 @@ struct Parser : reader::Reader {
 		auto init = parse_statement();
 		auto cond = parse_expr();
 		ws();
-		expect(";");
+		if (!try_consume(";"))
+			return std::nullopt;
 		ws();
 		auto incr = parse_expr();
 		ws();
@@ -985,7 +1003,7 @@ struct Parser : reader::Reader {
 			else if (keyword("out"))
 				kind = ast::FunctionParameter::Kind::out;
 			else
-				kind =  ast::FunctionParameter::Kind::in;
+				kind = ast::FunctionParameter::Kind::in;
 			ws();
 			auto type = parse_type();
 			if (!type)

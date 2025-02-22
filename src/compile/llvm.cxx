@@ -73,6 +73,10 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 	llvm::Type *llvm_type(const type::Pointer &type) {
 		return llvm::PointerType::get(llvm_type(*type.pointed), 0);
 	}
+	llvm::Type *llvm_type(const type::Slice &type) {
+		auto member = llvm::PointerType::get(llvm_type(*type.sliced), 0);
+		return llvm::StructType::get(llvm_context, {member, member});
+	}
 	utils::string_map<llvm::Type *> named_struct_llvm_types;
 	llvm::Type *llvm_type(const type::NamedStruct &type) {
 		auto name = type.mangle();
@@ -438,36 +442,42 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 	COMPARE_IMPL_FUNCTION(comparison_less_u32, CreateICmpULT)
 	COMPARE_IMPL_FUNCTION(comparison_less_u64, CreateICmpULT)
 	COMPARE_IMPL_FUNCTION(comparison_less_u128, CreateICmpULT)
+	COMPARE_IMPL_FUNCTION(comparison_less_ptr, CreateICmpULT)
 
 	COMPARE_IMPL_FUNCTION(comparison_less_eq_u8, CreateICmpULE)
 	COMPARE_IMPL_FUNCTION(comparison_less_eq_u16, CreateICmpULE)
 	COMPARE_IMPL_FUNCTION(comparison_less_eq_u32, CreateICmpULE)
 	COMPARE_IMPL_FUNCTION(comparison_less_eq_u64, CreateICmpULE)
 	COMPARE_IMPL_FUNCTION(comparison_less_eq_u128, CreateICmpULE)
+	COMPARE_IMPL_FUNCTION(comparison_less_eq_ptr, CreateICmpULE)
 
 	COMPARE_IMPL_FUNCTION(comparison_greater_u8, CreateICmpUGT)
 	COMPARE_IMPL_FUNCTION(comparison_greater_u16, CreateICmpUGT)
 	COMPARE_IMPL_FUNCTION(comparison_greater_u32, CreateICmpUGT)
 	COMPARE_IMPL_FUNCTION(comparison_greater_u64, CreateICmpUGT)
 	COMPARE_IMPL_FUNCTION(comparison_greater_u128, CreateICmpUGT)
+	COMPARE_IMPL_FUNCTION(comparison_greater_ptr, CreateICmpUGT)
 
 	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u8, CreateICmpUGE)
 	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u16, CreateICmpUGE)
 	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u32, CreateICmpUGE)
 	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u64, CreateICmpUGE)
 	COMPARE_IMPL_FUNCTION(comparison_greater_eq_u128, CreateICmpUGE)
+	COMPARE_IMPL_FUNCTION(comparison_greater_eq_ptr, CreateICmpUGT)
 
 	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u8, CreateICmpEQ)
 	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u16, CreateICmpEQ)
 	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u32, CreateICmpEQ)
 	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u64, CreateICmpEQ)
 	COMPARE_IMPL_FUNCTION(comparison_eq_eq_u128, CreateICmpEQ)
+	COMPARE_IMPL_FUNCTION(comparison_eq_eq_ptr, CreateICmpEQ)
 
 	COMPARE_IMPL_FUNCTION(comparison_not_equal_u8, CreateICmpNE)
 	COMPARE_IMPL_FUNCTION(comparison_not_equal_u16, CreateICmpNE)
 	COMPARE_IMPL_FUNCTION(comparison_not_equal_u32, CreateICmpNE)
 	COMPARE_IMPL_FUNCTION(comparison_not_equal_u64, CreateICmpNE)
 	COMPARE_IMPL_FUNCTION(comparison_not_equal_u128, CreateICmpNE)
+	COMPARE_IMPL_FUNCTION(comparison_not_equal_ptr, CreateICmpNE)
 
 	COMPARE_IMPL_FUNCTION(comparison_less_i8, CreateICmpSLT)
 	COMPARE_IMPL_FUNCTION(comparison_less_i16, CreateICmpSLT)
@@ -615,13 +625,40 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 		return alloca;
 	}
 
+	llvm::Value *impl_arr_ref_start_ref(const type::Array &array_type, llvm::Value *arr_ref) override {
+		return builder->CreateStructGEP(llvm_type(array_type), arr_ref, 0, "tmp");
+	}
+
+	llvm::Value *impl_slice_start_ptr(const type::Slice &slice_type, llvm::Value *slice_ref) override {
+		// index to the first ptr of the two
+		auto gep = builder->CreateStructGEP(llvm_type(slice_type), slice_ref, 0, "tmp");
+		// load that pointer
+		auto load_ptr = builder->CreateLoad(llvm::PointerType::get(llvm_type(*slice_type.sliced), 0), gep, "tmp");
+		return load_ptr;
+	}
+
+	llvm::Value *impl_slice_end_ptr(const type::Slice &slice_type, llvm::Value *slice_ref) override {
+		// index to the second ptr of the two
+		auto gep = builder->CreateStructGEP(llvm_type(slice_type), slice_ref, 1, "tmp");
+		// load that pointer
+		auto load_ptr = builder->CreateLoad(llvm::PointerType::get(llvm_type(*slice_type.sliced), 0), gep, "tmp");
+		return load_ptr;
+	}
+
 	llvm::Value *impl_subscript_ptr(const type::Type &pointed_type, llvm::Value *pointer, llvm::Value *index) override {
 		return builder->CreateGEP(llvm_type(pointed_type), pointer, index, "tmp");
 	}
 
-	llvm::Value *impl_subscript_arr_ref(const type::Array &array_type, llvm::Value *arr_ref, llvm::Value *index) override {
-		return builder->CreateGEP(llvm_type(array_type), arr_ref,
-								  {llvm::ConstantInt::get(index->getType(), 0), index}, "tmp");
+	llvm::Value *impl_slice_ptr(const type::Slice &slice_type, llvm::Value *from, llvm::Value *to) override {
+		auto slice_t = llvm_type(slice_type);
+		llvm::Value *combined = llvm::PoisonValue::get(slice_t);
+		combined = builder->CreateInsertValue(combined, from, 0, "tmp");
+		combined = builder->CreateInsertValue(combined, to, 1, "tmp");
+		return combined;
+	}
+
+	llvm::Value *impl_ptrdiff(const type::Type &element, llvm::Value *left, llvm::Value *right) override {
+		return builder->CreatePtrDiff(llvm_type(element), left, right, "tmp");
 	}
 
 	llvm::Value *impl_array(const type::Array &type, std::span<llvm::Value *> members) override {
@@ -660,6 +697,10 @@ struct LlvmVisitor final : backend::Base<LlvmVisitor, llvm::Value *, llvm::Value
 	llvm::Value *impl_const_int32(int32_t value) override {
 		return llvm::ConstantInt::get(
 				llvm::Type::getInt32Ty(llvm_context), value);
+	}
+	llvm::Value *impl_const_uintmax(std::uintmax_t value) override {
+		return llvm::ConstantInt::get(
+				llvm::Type::getIntNTy(llvm_context, sizeof(std::uintmax_t) * 8), value);
 	}
 	llvm::Value *impl_const_double(double value) override {
 		return llvm::ConstantFP::get(

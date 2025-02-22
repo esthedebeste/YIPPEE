@@ -116,6 +116,21 @@ std::string Pointer::mangle() const {
 std::string Primitive::mangle() const {
 	return 'P' + std::string(mangle_name());
 }
+Slice::Slice(std::unique_ptr<Type> sliced) : sliced{std::move(sliced)} {}
+Slice::Slice(const Slice &other) : sliced{clone(other.sliced)} {}
+Slice &Slice::operator=(const Slice &other) {
+	sliced = clone(other.sliced);
+	return *this;
+}
+std::strong_ordering Slice::operator<=>(const Slice &other) const {
+	return sliced->operator<=>(*other.sliced);
+}
+bool Slice::operator==(const Slice &other) const {
+	return sliced->operator==(*other.sliced);
+}
+std::string Slice::mangle() const {
+	return 's' + sliced->mangle();
+}
 std::string Type::mangle() const {
 	std::string prefix{};
 	if (is_const)
